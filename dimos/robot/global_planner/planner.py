@@ -45,7 +45,17 @@ class Planner(Visualizable, Module):
         goal_theta: Optional[float] = None,
         stop_event: Optional[threading.Event] = None,
     ):
-        path = self.plan(goal)
+        from dimos.msgs.geometry_msgs import Pose
+        import math
+
+        if goal_theta is not None:
+            qw = math.cos(goal_theta / 2)
+            qz = math.sin(goal_theta / 2)
+            goal_pose = Pose(goal.x, goal.y, goal.z, 0, 0, qz, qw)
+        else:
+            goal_pose = Pose(goal.x, goal.y, goal.z, 0, 0, 0, 1)
+
+        path = self.plan(goal_pose)
         if not path:
             logger.warning("No path found to the goal.")
             return False
@@ -96,6 +106,7 @@ class AstarPlanner(Planner):
             self.vis("a*", path)
             self.path.publish(path)
             if hasattr(self, "set_local_nav") and self.set_local_nav:
-                self.set_local_nav(path)
+                goal_theta = goal.orientation.to_euler().z
+                self.set_local_nav(path, 120, goal_theta)
             return path
         logger.warning("No path found to the goal.")
