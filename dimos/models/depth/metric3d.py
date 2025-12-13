@@ -17,8 +17,14 @@ from PIL import Image
 import cv2
 import numpy as np
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+try:
+	cv2.setNumThreads(int(os.getenv("CV_THREADS", "1")))
+except Exception:
+	pass
 
 try:
     import cupy as cp
@@ -140,7 +146,12 @@ class Metric3D:
 
         print(f"### Using providers: {providers} ###")
 
-        self.session = ort.InferenceSession(onnx_model_path, providers=providers)
+        so = ort.SessionOptions()
+        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        so.intra_op_num_threads = int(os.getenv("ORT_INTRA_OP_THREADS", max(1, (os.cpu_count() or 4) // 2)))
+        so.inter_op_num_threads = int(os.getenv("ORT_INTER_OP_THREADS", "1"))
+
+        self.session = ort.InferenceSession(onnx_model_path, sess_options=so, providers=providers)
         if self.contains_io_binding:
             io = self.session.io_binding()
             io.bind_output(name="pred_depth", device_type="cuda", device_id=0)

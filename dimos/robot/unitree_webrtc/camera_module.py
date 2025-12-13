@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
+import time, contextlib
 import threading
 from typing import List, Optional
 
@@ -34,7 +34,6 @@ from dimos.utils.dask_frame_cluster import SourceActor
 from dimos.perception.common.utils import colorize_depth
 
 logger = setup_logger(__name__)
-
 
 class UnitreeCameraModule(Module):
     """
@@ -195,8 +194,10 @@ class UnitreeCameraModule(Module):
 
                 # 3) Attach a reader slot for MultiRateProcessor
                 if prefer == "cuda":
+                    logger.info("CUDA IPC FACTORY ATTACHING")
                     self.slot = CUDA_IPC_Factory.attach(self._desc)
                 else:
+                    logger.info("CPU IPC FACTORY ATTACHING")
                     self.slot = CPU_IPC_Factory.attach(self._desc)
 
                 # 4) Build processor on the attached reader slot
@@ -211,7 +212,11 @@ class UnitreeCameraModule(Module):
                 logger.info(f"Initialized SourceActor + IPC channel shape={shape} prefer={prefer} dtype={dtype}")
 
             # Push this frame into the channel via SourceActor
+            start = time.time()
             self._source.publish(msg.data)
+            end = time.time()
+            logger.info(f"self.source_publish returned. Time: {end}. Time taken: {end - start:.4f} seconds")
+            
 
             # Keep last image for publishing (color topic)
             self._last_image = msg.data
@@ -239,9 +244,15 @@ class UnitreeCameraModule(Module):
     def _process_depth(self, img_array: np.ndarray, meta=None):
         """Process depth estimation using Metric3D (CPU/GPU handled inside the model)."""
         try:
+            start = time.time()
             depth_array = self.metric3d.infer_depth(img_array) / self.gt_depth_scale
             self._last_depth = depth_array
+            end = time.time()
+            logger.info(f"self._last_depth returned. Time: {end}. Time taken: {end - start:.4f} seconds")
+            start = time.time()
             self._publish_synchronized_data()
+            end = time.time()
+            logger.info(f"publish_synchronized_data called. Time: {end}. Time taken: {end - start:.4f} seconds")
         except Exception as e:
             logger.error(f"Error processing depth: {e}", exc_info=True)
 
@@ -253,6 +264,8 @@ class UnitreeCameraModule(Module):
         try:
             header = Header(self.camera_frame_id)
 
+            publish_start = time.perf_counter()
+
             # Publish color image (if available)
             if self._last_image is not None:
                 color_msg = Image(
@@ -262,6 +275,8 @@ class UnitreeCameraModule(Module):
                     ts=header.ts,
                 )
                 self.color_image.publish(color_msg)
+                color_end = time.perf_counter()
+                logger.info(f"Color publish: {(color_end - publish_start)*1000:.1f}ms")
 
             # Publish depth + colorized
             if self._last_depth is not None:
@@ -272,6 +287,8 @@ class UnitreeCameraModule(Module):
                     ts=header.ts,
                 )
                 self.depth_image.publish(depth_msg)
+                depth_end = time.perf_counter()
+                logger.info(f"Depth publish: {(depth_end - color_end)*1000:.1f}ms")
 
                 depth_colorized_array = colorize_depth(
                     self._last_depth, max_depth=10.0, overlay_stats=True
@@ -284,6 +301,9 @@ class UnitreeCameraModule(Module):
                         ts=header.ts,
                     )
                     self.depth_colorized.publish(depth_colorized_msg)
+                    colorized_end = time.perf_counter()
+                    logger.info(f"Colorized publish: {(colorized_end - depth_end)*1000:.1f}ms")
+
 
             # Camera info & pose
             self._publish_camera_info(header)

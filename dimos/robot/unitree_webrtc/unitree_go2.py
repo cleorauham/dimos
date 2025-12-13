@@ -21,6 +21,7 @@ import os
 import time
 import warnings
 from typing import List, Optional
+import numpy as np
 
 from dimos import core
 from dimos.core import In, Module, Out, rpc
@@ -224,6 +225,16 @@ class UnitreeGo2(Robot):
         self.playback = playback or (ip is None)  # Auto-enable playback if no IP provided
         self.output_dir = output_dir or os.path.join(os.getcwd(), "assets", "output")
         self.websocket_port = websocket_port
+        lcm_config = {
+            'lcm.url': 'udpm://239.255.76.67:7667?ttl=1',  # Local multicast
+            'lcm.max_payload_size': '65536',  # Larger payload size
+            'lcm.recv_buf_size': '1048576',   # 1MB receive buffer
+            'lcm.send_buf_size': '1048576',   # 1MB send buffer
+        }
+
+        # Apply config
+        for key, value in lcm_config.items():
+            os.environ[key] = value
         self.lcm = LCM()
 
         # Default camera intrinsics
@@ -407,9 +418,22 @@ class UnitreeGo2(Robot):
             base_frame_id="base_link",
         )
 
+        from dimos.core.shared_memory_transport import SharedMemoryImageTransport
+        self.camera_module.depth_image.transport = SharedMemoryImageTransport(
+            "/go2/depth_image",
+            (720, 1280),  # Shape of depth image
+            np.float32     # Data type
+        )
+
+        self.camera_module.color_image.transport = SharedMemoryImageTransport(
+            "/go2/color_image",
+            (720, 1280, 3),
+            np.uint8
+        )
+
         # Set up transports
-        self.camera_module.color_image.transport = core.LCMTransport("/go2/color_image", Image)
-        self.camera_module.depth_image.transport = core.LCMTransport("/go2/depth_image", Image)
+        #self.camera_module.color_image.transport = core.LCMTransport("/go2/color_image", Image)
+        #self.camera_module.depth_image.transport = core.LCMTransport("/go2/depth_image", Image)
         self.camera_module.depth_colorized.transport = core.LCMTransport(
             "/go2/depth_colorized", Image
         )
