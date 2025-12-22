@@ -20,7 +20,7 @@ import logging
 import os
 import time
 import warnings
-from typing import Optional
+from typing import Optional, List
 
 from reactivex import Observable
 
@@ -35,6 +35,7 @@ from dimos.msgs.sensor_msgs import Image
 from dimos.msgs.vision_msgs import Detection2DArray
 from dimos_lcm.std_msgs import String
 from dimos_lcm.sensor_msgs import CameraInfo
+from dimos.perception.detection2d.module2D import Detection2DModule
 from dimos.perception.spatial_perception import SpatialMemory
 from dimos.perception.common.utils import (
     load_camera_info,
@@ -60,12 +61,11 @@ from dimos.skills.skills import AbstractRobotSkill, SkillLibrary
 from dimos.utils.data import get_data
 from dimos.utils.logging_config import setup_logger
 from dimos.utils.testing import TimedSensorReplay
-from dimos.perception.object_tracker_2d import ObjectTracker2D
 from dimos.navigation.bbox_navigation import BBoxNavigationModule
 from dimos_lcm.std_msgs import Bool
+from dimos.msgs.foxglove_msgs import ImageAnnotations
 from dimos.robot.robot import UnitreeRobot
 from dimos.types.robot_capabilities import RobotCapability
-
 
 logger = setup_logger("dimos.robot.unitree_webrtc.unitree_go2", level=logging.INFO)
 
@@ -222,18 +222,47 @@ class ConnectionModule(Module):
     def _publish_gps_location(self, msg: LatLon):
         self.gps_location.publish(msg)
 
-    def _publish_tf(self, msg):
-        self._odom = msg
-        self.odom.publish(msg)
-        self.tf.publish(Transform.from_pose("base_link", msg))
+    @classmethod
+    def _odom_to_tf(self, odom: PoseStamped) -> List[Transform]:
         camera_link = Transform(
             translation=Vector3(0.3, 0.0, 0.0),
             rotation=Quaternion(0.0, 0.0, 0.0, 1.0),
             frame_id="base_link",
             child_frame_id="camera_link",
-            ts=time.time(),
+            ts=odom.ts,
         )
-        self.tf.publish(camera_link)
+
+        camera_optical = Transform(
+            translation=Vector3(0.0, 0.0, 0.0),
+            rotation=Quaternion(-0.5, 0.5, -0.5, 0.5),
+            frame_id="camera_link",
+            child_frame_id="camera_optical",
+            ts=odom.ts,
+        )
+
+        return [
+            Transform.from_pose("base_link", odom),
+            camera_link,
+            camera_optical,
+        ]
+
+    def _publish_tf(self, msg):
+        self._odom = msg
+        self.odom.publish(msg)
+        self.tf.publish(*self._odom_to_tf(msg))
+
+    # def _publish_tf(self, msg):
+    #     self._odom = msg
+    #     self.odom.publish(msg)
+    #     self.tf.publish(Transform.from_pose("base_link", msg))
+    #     camera_link = Transform(
+    #         translation=Vector3(0.3, 0.0, 0.0),
+    #         rotation=Quaternion(0.0, 0.0, 0.0, 1.0),
+    #         frame_id="base_link",
+    #         child_frame_id="camera_link",
+    #         ts=time.time(),
+    #     )
+    #     self.tf.publish(camera_link)
 
     def _publish_camera_info(self, timestamp: float):
         header = Header(timestamp, "camera_link")
@@ -348,7 +377,8 @@ class UnitreeGo2(UnitreeRobot):
         self.websocket_vis = None
         self.foxglove_bridge = None
         self.spatial_memory_module = None
-        self.object_tracker = None
+        self.object_db = None
+        self.bbox_navigator = None
         self.utilization_module = None
 
         self._setup_directories()
@@ -409,7 +439,8 @@ class UnitreeGo2(UnitreeRobot):
         # self.websocket_vis.stop()
         # self.foxglove_bridge.stop()
         self.spatial_memory_module.stop()
-        # self.object_tracker.stop()
+        # self.object_db.stop()
+        # self.bbox_navigator.stop()
         self.utilization_module.stop()
         self.dimos.close_all()
         self.lcm.stop()
@@ -506,7 +537,7 @@ class UnitreeGo2(UnitreeRobot):
         def _set_goal(goal: LatLon):
             self.set_gps_travel_goal_points([goal])
 
-        unsub = self.websocket_vis.gps_goal.transport.pure_observable().subscribe(_set_goal)
+        _unsub = self.websocket_vis.gps_goal.transport.pure_observable().subscribe(_set_goal)
 
     def _deploy_foxglove_bridge(self):
         self.foxglove_bridge = FoxgloveBridge(
@@ -536,43 +567,50 @@ class UnitreeGo2(UnitreeRobot):
 
         logger.info("Spatial memory module deployed and connected")
 
-        # Deploy 2D object tracker
-        self.object_tracker = self.dimos.deploy(
-            ObjectTracker2D,
-            frame_id="camera_link",
+        self.object_db = self.dimos.deploy(
+            Detection2DModule,
+        )
+
+        # Set up Detection2D outputs
+        self.object_db.annotations.transport = core.LCMTransport(
+            "/go2/annotations", ImageAnnotations
+        )
+        self.object_db.detections.transport = core.LCMTransport("/go2/detections", Detection2DArray)
+
+        # Set up detected images outputs
+        self.object_db.detected_image_0.transport = core.pSHMTransport(
+            "/go2/detected_image_0", default_capacity=DEFAULT_CAPACITY_COLOR_IMAGE
+        )
+        self.object_db.detected_image_1.transport = core.pSHMTransport(
+            "/go2/detected_image_1", default_capacity=DEFAULT_CAPACITY_COLOR_IMAGE
+        )
+        self.object_db.detected_image_2.transport = core.pSHMTransport(
+            "/go2/detected_image_2", default_capacity=DEFAULT_CAPACITY_COLOR_IMAGE
         )
 
         # Deploy bbox navigation module
-        self.bbox_navigator = self.dimos.deploy(BBoxNavigationModule, goal_distance=1.0)
+        self.bbox_navigator = self.dimos.deploy(BBoxNavigationModule, goal_distance=2.0)
 
         self.utilization_module = self.dimos.deploy(UtilizationModule)
 
-        # Set up transports for object tracker
-        self.object_tracker.detection2darray.transport = core.LCMTransport(
-            "/go2/detection2d", Detection2DArray
-        )
-        self.object_tracker.tracked_overlay.transport = core.pSHMTransport(
-            "/go2/tracked_overlay", default_capacity=DEFAULT_CAPACITY_COLOR_IMAGE
-        )
-
         # Set up transports for bbox navigator
+        self.bbox_navigator.detection2d.transport = core.LCMTransport(
+            "/go2/detections", Detection2DArray
+        )
+        self.bbox_navigator.camera_info.transport = core.LCMTransport(
+            "/go2/camera_info", CameraInfo
+        )
+        self.bbox_navigator.odom.transport = core.LCMTransport("/odom", PoseStamped)
         self.bbox_navigator.goal_request.transport = core.LCMTransport("/goal_request", PoseStamped)
 
-        logger.info("Object tracker and bbox navigator modules deployed")
+        logger.info("Detection2D and bbox navigator modules deployed")
 
     def _deploy_camera(self):
         """Deploy and configure the camera module."""
-        # Connect object tracker inputs
-        if self.object_tracker:
-            self.object_tracker.color_image.connect(self.connection.video)
-            logger.info("Object tracker connected to camera")
-
-        # Connect bbox navigator inputs
-        if self.bbox_navigator:
-            self.bbox_navigator.detection2d.connect(self.object_tracker.detection2darray)
-            self.bbox_navigator.camera_info.connect(self.connection.camera_info)
-            self.bbox_navigator.goal_request.connect(self.navigator.goal_request)
-            logger.info("BBox navigator connected")
+        # Connect Detection2D inputs
+        if self.object_db:
+            self.object_db.image.connect(self.connection.video)
+            logger.info("Detection2D connected to camera")
 
     def _start_modules(self):
         """Start all deployed modules in the correct order."""
@@ -585,7 +623,7 @@ class UnitreeGo2(UnitreeRobot):
         # self.websocket_vis.start()
         self.foxglove_bridge.start()
         self.spatial_memory_module.start()
-        self.object_tracker.start()
+        self.object_db.start()
         self.bbox_navigator.start()
         self.utilization_module.start()
 
@@ -676,6 +714,29 @@ class UnitreeGo2(UnitreeRobot):
         """
         return self.spatial_memory_module
 
+    def track_object(self, target: str) -> str:
+        """Track an object by ID or class name using visual servoing.
+
+        Args:
+            target: Object ID (e.g. 'obj_0') or class name (e.g. 'person')
+
+        Returns:
+            Status message
+        """
+        if self.bbox_navigator:
+            return self.bbox_navigator.track(target)
+        return "Object tracking not available"
+
+    def stop_tracking(self) -> str:
+        """Stop visual tracking.
+
+        Returns:
+            Status message
+        """
+        if self.bbox_navigator:
+            return self.bbox_navigator.stop_tracking()
+        return "Object tracking not available"
+
     @functools.cached_property
     def gps_position_stream(self) -> Observable[LatLon]:
         return self.connection.gps_location.transport.pure_observable()
@@ -704,7 +765,8 @@ def main():
 
     robot = UnitreeGo2(ip=ip, websocket_port=7779, connection_type=connection_type)
     robot.start()
-
+    time.sleep(5)
+    logger.info(robot.track_object("person"))
     try:
         while True:
             time.sleep(0.1)
