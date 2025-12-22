@@ -23,9 +23,11 @@ from pydantic import Field, validator
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
+from reactivex import Observable
+
 from dimos.stream.audio2.base import GStreamerSourceBase
 from dimos.stream.audio2.gstreamer import GStreamerNodeConfig
-from dimos.stream.audio2.types import AudioSource
+from dimos.stream.audio2.types import AudioEvent
 from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger("dimos.stream.audio2.input.file")
@@ -57,11 +59,27 @@ class FileInputNode(GStreamerSourceBase):
 
     def _get_pipeline_string(self) -> str:
         """Get the file source pipeline string."""
-        return f"filesrc location={self.config.file_path} ! decodebin"
+        # Basic pipeline: filesrc -> decodebin
+        pipeline = f"filesrc location={self.config.file_path} ! decodebin"
+
+        # For realtime playback, we'll rely on the appsink sync property
+        # The decodebin will connect directly to appsink via dynamic pads
+        return pipeline
 
     def _get_source_name(self) -> str:
         """Get a descriptive name including the file."""
         return f"FileInput[{Path(self.config.file_path).name}]"
+
+    def _create_pipeline(self):
+        """Create pipeline and ensure it has a clock for realtime playback."""
+        super()._create_pipeline()
+
+        # For realtime playback, ensure the pipeline uses the system clock
+        if self.config.realtime:
+            # Force the pipeline to use the system clock
+            clock = Gst.SystemClock.obtain()
+            self._pipeline.use_clock(clock)
+            logger.info(f"{self._get_source_name()}: Using system clock for realtime playback")
 
     def _configure_appsink(self):
         """Configure appsink with realtime option."""
@@ -81,7 +99,7 @@ class FileInputNode(GStreamerSourceBase):
             super()._handle_eos()
 
 
-def file_input(file_path: str, **kwargs) -> AudioSource:
+def file_input(file_path: str, **kwargs) -> Observable[AudioEvent]:
     """Create a file input source.
 
     Args:
@@ -93,12 +111,7 @@ def file_input(file_path: str, **kwargs) -> AudioSource:
             - properties: GStreamer element properties
 
     Returns:
-        AudioSource function that creates the observable
+        Observable that emits AudioEvents
     """
     config = FileInputConfig(file_path=file_path, **kwargs)
-
-    def create_source():
-        node = FileInputNode(config)
-        return node.create_observable()
-
-    return create_source
+    return FileInputNode(config).create_observable()

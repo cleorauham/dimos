@@ -138,7 +138,7 @@ class GStreamerSourceBase(GStreamerPipelineBase, ABC):
         # Use sync parameter if provided, otherwise default to False
         sync_value = sync if sync is not None else False
         self._appsink.set_property("sync", sync_value)
-        logger.debug(f"Set appsink sync={sync_value}")
+        logger.info(f"{self._get_source_name()}: Set appsink sync={sync_value}")
 
         # Apply any custom properties
         if hasattr(self.config, "properties") and self.config.properties:
@@ -155,6 +155,11 @@ class GStreamerSourceBase(GStreamerPipelineBase, ABC):
         self._running = False
         if self._observer:
             self._observer.on_completed()
+        # Schedule cleanup in a separate thread to avoid deadlock
+        # (EOS handler runs in GStreamer thread, can't join itself)
+        import threading
+        self._cleanup_thread = threading.Thread(target=self._cleanup_on_completion, daemon=True)
+        self._cleanup_thread.start()
 
     def _handle_error(self, error):
         """Handle pipeline errors."""
@@ -227,13 +232,45 @@ class GStreamerSourceBase(GStreamerPipelineBase, ABC):
 
         finally:
             logger.info(f"{self._get_source_name()}: Total buffers pushed: {buffer_count}")
-            logger.debug(f"Pull thread '{self._pull_thread_name}' exiting")
-            self._cleanup_pipeline()
+            logger.info(f"Pull thread '{self._pull_thread_name}' exiting")
+            # Don't cleanup pipeline here - it's done in _cleanup_on_completion
+
+    def _cleanup_on_completion(self):
+        """Clean up resources when stream completes naturally."""
+        logger.info(f"{self._get_source_name()}: Cleaning up after completion")
+
+        # Mark as not running first
+        self._running = False
+
+        # Stop pipeline
+        if self._pipeline:
+            logger.info(f"{self._get_source_name()}: Setting pipeline to NULL")
+            self._pipeline.set_state(Gst.State.NULL)
+
+        # Wait for pull thread to finish
+        if self._pull_thread and self._pull_thread.is_alive():
+            logger.info(f"{self._get_source_name()}: Waiting for pull thread '{self._pull_thread_name}' to finish")
+            self._pull_thread.join(timeout=2.0)
+            if self._pull_thread.is_alive():
+                logger.warning(f"Pull thread '{self._pull_thread_name}' did not stop in time")
+            else:
+                logger.info(f"{self._get_source_name()}: Pull thread finished")
+
+        # Clean up pipeline resources
+        self._cleanup_pipeline()
+
+        # Release MainLoop reference
+        from dimos.stream.audio2.gstreamer import release_mainloop
+        release_mainloop()
+
+        logger.info(f"{self._get_source_name()}: Cleanup complete")
 
     def _generate_thread_name(self) -> str:
         """Generate a unique thread name for debugging."""
-        timestamp = int(time.time() * 1000) % 10000
-        return f"{self._get_source_name()}-{timestamp}"
+        import random
+        # Use random number to avoid collisions
+        unique_id = random.randint(1000, 9999)
+        return f"{self._get_source_name()}-{unique_id}"
 
     def create_observable(self) -> Observable[AudioEvent]:
         """Create an observable that emits AudioEvents from this source."""
@@ -368,10 +405,26 @@ class GStreamerSinkBase(GStreamerPipelineBase, ABC):
         self._appsrc.set_property("block", False)
         self._appsrc.set_property("max-bytes", 0)  # No limit
 
+        # Set stream-type to seekable for proper EOS handling
+        self._appsrc.set_property("stream-type", 0)  # GST_APP_STREAM_TYPE_STREAM
+
     def _handle_error(self, error):
         """Handle pipeline errors."""
         logger.error(f"{self._get_sink_name()}: Pipeline error: {error}")
         # Don't stop on errors - just log them
+
+    def _handle_eos(self):
+        """Handle end of stream - automatically stop the sink."""
+        logger.info(f"{self._get_sink_name()}: EOS received, scheduling stop")
+        # Schedule stop in a separate thread to avoid deadlock
+        # (EOS handler runs in GStreamer thread, can't join itself)
+        import threading
+        def stop_and_log():
+            logger.info(f"{self._get_sink_name()}: Calling stop() from EOS handler")
+            self.stop()
+            logger.info(f"{self._get_sink_name()}: stop() completed, _is_playing={self._is_playing}")
+
+        threading.Thread(target=stop_and_log, daemon=True, name=f"{self._get_sink_name()}-stop").start()
 
     def _audio_event_to_buffer(self, event: AudioEvent) -> Gst.Buffer:
         """Convert an AudioEvent to a GStreamer buffer."""
@@ -380,7 +433,10 @@ class GStreamerSinkBase(GStreamerPipelineBase, ABC):
             self._input_format = AudioSpec(
                 format=event.format, sample_rate=event.sample_rate, channels=event.channels
             )
+            # Ensure caps include layout=interleaved for proper negotiation
             caps_str = self._input_format.to_gst_caps_string()
+            if "layout=" not in caps_str:
+                caps_str += ",layout=interleaved"
             caps = Gst.Caps.from_string(caps_str)
             self._appsrc.set_property("caps", caps)
             logger.info(f"{self._get_sink_name()}: Set input caps: {caps_str}")
@@ -452,12 +508,13 @@ class GStreamerSinkBase(GStreamerPipelineBase, ABC):
 
     def on_completed(self):
         """Handle stream completion."""
-        logger.info(f"{self._get_sink_name()}: Stream completed")
-        # Send EOS to pipeline
+        logger.info(f"{self._get_sink_name()}: Stream completed, sending EOS to pipeline")
+        # Send EOS to pipeline - this will trigger _handle_eos() which stops the sink
         if self._appsrc:
             self._appsrc.emit("end-of-stream")
-        # Note: We don't automatically stop here - the caller should call stop()
-        # when they're ready to clean up
+            logger.info(f"{self._get_sink_name()}: EOS sent to pipeline")
+        else:
+            logger.warning(f"{self._get_sink_name()}: No appsrc to send EOS to")
 
     def start(self):
         """Start the audio sink pipeline."""

@@ -194,13 +194,13 @@ class CompressedAudioEvent(AudioEvent):
         return self.format_type
 
 
-# GStreamer works with both raw and compressed audio
-# These type aliases make it clear what type of events flow through the pipeline
-AudioSource = Callable[[], Observable[AudioEvent]]
+# Type aliases for the reactive audio pipeline
+# Sources now return Observables directly (not factory functions)
+AudioSource = Observable[AudioEvent]
 AudioSink = Observer[AudioEvent]
 
-# Pure Python transforms work only with raw audio
-RawAudioSource = Callable[[], Observable[RawAudioEvent]]
+# For raw audio only (pure Python transforms)
+RawAudioSource = Observable[RawAudioEvent]
 RawAudioSink = Observer[RawAudioEvent]
 
 # Transform types

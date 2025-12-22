@@ -96,7 +96,10 @@ def release_mainloop():
                 _mainloop.quit()
 
                 # Wait for the thread to finish to ensure clean shutdown
-                if _mainloop_thread and _mainloop_thread.is_alive():
+                # But don't try to join if we're in the MainLoop thread itself
+                import threading
+                if (_mainloop_thread and _mainloop_thread.is_alive() and
+                    threading.current_thread() != _mainloop_thread):
                     _mainloop_thread.join(timeout=2.0)
                     if _mainloop_thread.is_alive():
                         logger.warning("MainLoop thread did not stop cleanly")
@@ -212,6 +215,10 @@ class GStreamerPipelineBase:
 
         Subclasses can override this for custom message handling.
         """
+        # Debug log all message types
+        if message.type != Gst.MessageType.STATE_CHANGED:  # Skip noisy state change messages
+            logger.debug(f"Bus message: {message.type} from {message.src.get_name() if message.src else 'unknown'}")
+
         if message.type == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
             logger.error(f"Pipeline error: {err}, {debug}")
@@ -220,7 +227,7 @@ class GStreamerPipelineBase:
             err, debug = message.parse_warning()
             logger.warning(f"Pipeline warning: {err}, {debug}")
         elif message.type == Gst.MessageType.EOS:
-            logger.info("End of stream")
+            logger.info(f"End of stream received from {message.src.get_name() if message.src else 'unknown'}")
             self._handle_eos()
 
     def _handle_error(self, error):

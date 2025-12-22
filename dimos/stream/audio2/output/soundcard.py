@@ -15,6 +15,7 @@
 
 """Soundcard output node for playing audio through system speakers."""
 
+import threading
 from typing import Optional
 
 import gi
@@ -54,15 +55,13 @@ class SoundcardOutputNode(GStreamerSinkBase):
 
     def _get_pipeline_string(self) -> str:
         """Build the soundcard output pipeline."""
-        # We need to handle both raw and compressed audio
-        # For compressed audio, we need to decode first
+        # Simple pipeline that handles raw audio directly
+        # For compressed audio support, we'd need to detect format and add decoder
         # Add queue for buffering
         # Use audioconvert and audioresample for format flexibility
         # autoaudiosink automatically selects the best available sink
         parts = [
             "queue",
-            "!",
-            "decodebin",
             "!",
             "audioconvert",
             "!",
@@ -90,11 +89,12 @@ class SoundcardOutputNode(GStreamerSinkBase):
             # Just use the autoaudiosink directly - it will forward properties
             sink_to_configure = sink
 
-            # Set sync property - force False for immediate playback
+            # Set sync property - False so sink plays audio as it receives it
             try:
-                # Always set sync to False - we don't know the source timing
+                # Set sync to False - the sink should play whatever it receives immediately
+                # The source controls the timing by emitting events at the right rate
                 sink_to_configure.set_property("sync", False)
-                logger.info(f"Set sync=False (forced) on {sink_to_configure.get_name()}")
+                logger.info(f"Set sync=False on {sink_to_configure.get_name()} (plays as received)")
             except Exception as e:
                 logger.warning(f"Failed to set sync property: {e}")
 
@@ -123,38 +123,209 @@ class SoundcardOutputNode(GStreamerSinkBase):
                 )
 
 
+class BlockingSpeaker:
+    """A speaker sink that blocks until playback completes.
+
+    This wrapper provides a cleaner API for simple playback scenarios
+    where you want the subscription to block until audio finishes playing.
+    """
+
+    def __init__(self, sink_node):
+        self._sink = sink_node
+        self._completion_event = threading.Event()
+        self._started = False
+
+    def on_next(self, value):
+        self._started = True
+        self._sink.on_next(value)
+
+    def on_error(self, error):
+        self._sink.on_error(error)
+        self._completion_event.set()
+
+    def on_completed(self):
+        # Call sink's on_completed
+        self._sink.on_completed()
+        # Signal completion
+        self._completion_event.set()
+
+    def wait_for_completion(self):
+        """Block until playback completes."""
+        # Wait for the completion event
+        self._completion_event.wait(timeout=30.0)  # Max 30 seconds
+
+        # Wait for the sink to finish processing
+        import time
+        max_wait = 10.0
+        start = time.time()
+        while self._sink._is_playing and (time.time() - start) < max_wait:
+            time.sleep(0.1)
+
+        # Wait for FileInput threads and cleanup threads to finish
+        max_cleanup_wait = 5.0
+        cleanup_start = time.time()
+        while (time.time() - cleanup_start) < max_cleanup_wait:
+            file_input_threads = [t for t in threading.enumerate()
+                                  if "FileInput" in t.name and t.is_alive()]
+            if not file_input_threads:
+                break
+            time.sleep(0.1)
+
+        # Give a bit more time for GStreamer cleanup
+        time.sleep(0.5)
+
+    def __del__(self):
+        """When the speaker goes out of scope, wait for completion and cleanup."""
+        # Block until playback completes
+        if hasattr(self, '_started') and self._started:
+            self.wait_for_completion()
+
+        # Stop the sink if it's still running
+        if hasattr(self, '_sink'):
+            self._sink.stop()
+
+
 def speaker(
     device: Optional[str] = None,
     buffer_time: Optional[int] = None,
     latency_time: Optional[int] = None,
+    blocking: bool = True,
     **kwargs,
-) -> AudioSink:
-    """Create a soundcard output sink.
+):
+    """Create a soundcard output operator for playing audio.
+
+    Can be used either as a sink (Observer) for subscribe() or as an
+    operator for pipe().
 
     Args:
         device: Audio device name (None = default device)
         buffer_time: Buffer time in microseconds (None = auto)
         latency_time: Latency time in microseconds (None = auto)
+        blocking: If True, blocks until playback completes (default: True)
         **kwargs: Additional arguments passed to SoundcardOutputConfig:
             - output: Output audio specification (usually not needed)
             - properties: Additional GStreamer element properties
 
     Returns:
-        AudioSink that can subscribe to an Observable[AudioEvent]
+        Either an operator function for use with pipe() or an AudioSink
+        for use with subscribe(), depending on context.
 
     Examples:
-        # Play audio through default speakers
-        sink = speaker()
-        file_input("audio.mp3")().subscribe(sink)
+        # Use as operator with pipe() and run()
+        file_input("audio.mp3").pipe(speaker()).run()
+
+        # Use as sink with subscribe()
+        file_input("audio.mp3").subscribe(speaker())
 
         # Low latency output
-        sink = speaker(buffer_time=10000)  # 10ms buffer
+        file_input("audio.mp3").pipe(speaker(buffer_time=10000)).run()
 
         # Specific device
-        sink = speaker(device="hw:1,0")
+        file_input("audio.mp3").pipe(speaker(device="hw:1,0")).run()
     """
+    from reactivex import operators as ops
+
     config = SoundcardOutputConfig(
         device=device, buffer_time=buffer_time, latency_time=latency_time, **kwargs
     )
 
-    return SoundcardOutputNode(config)
+    node = SoundcardOutputNode(config)
+
+    # Create a sink (wrapped if blocking)
+    if blocking:
+        sink = BlockingSpeaker(node)
+    else:
+        sink = node
+
+    # Return a dual-purpose object that can be used as operator or sink
+    class SpeakerOperator:
+        """Can be used as both an operator and a sink."""
+
+        def __init__(self, sink_node):
+            self._sink = sink_node
+
+        def __call__(self, source):
+            """Act as an operator for pipe() that properly waits for completion."""
+            from reactivex import create
+            import threading
+
+            def subscribe(observer, scheduler=None):
+                # Event to track when sink actually finishes
+                sink_completed = threading.Event()
+
+                # Wrap sink callbacks to track completion
+                def on_next_wrapper(value):
+                    self._sink.on_next(value)
+                    # Pass through to observer
+                    observer.on_next(value)
+
+                def on_error_wrapper(error):
+                    self._sink.on_error(error)
+                    sink_completed.set()
+                    observer.on_error(error)
+
+                def on_completed_wrapper():
+                    from dimos.utils.logging_config import setup_logger
+                    logger = setup_logger("dimos.stream.audio2.output.soundcard")
+                    logger.info("SpeakerOperator: on_completed received from source")
+
+                    self._sink.on_completed()
+
+                    # Wait for sink to actually finish processing
+                    # This is where the sink plays remaining audio and cleans up
+                    import time
+                    max_wait = 15.0
+                    start = time.time()
+                    # Get the actual sink node (unwrap BlockingSpeaker if present)
+                    actual_sink = self._sink._sink if hasattr(self._sink, '_sink') else self._sink
+                    logger.info(f"SpeakerOperator: Waiting for sink to finish (is_playing={getattr(actual_sink, '_is_playing', 'N/A')})")
+                    while hasattr(actual_sink, '_is_playing') and actual_sink._is_playing:
+                        if time.time() - start > max_wait:
+                            logger.warning("SpeakerOperator: Timeout waiting for sink to finish")
+                            break
+                        time.sleep(0.1)
+                    logger.info(f"SpeakerOperator: Sink finished playing after {time.time() - start:.2f}s")
+
+                    # Wait for cleanup threads to finish
+                    max_cleanup_wait = 5.0
+                    cleanup_start = time.time()
+                    logger.info("SpeakerOperator: Waiting for cleanup threads")
+                    while (time.time() - cleanup_start) < max_cleanup_wait:
+                        # Check for any audio-related threads still running
+                        audio_threads = [t for t in threading.enumerate()
+                                       if any(name in t.name for name in
+                                             ['FileInput', 'TestSignal', 'GStreamerMainLoop'])
+                                       and t.is_alive()]
+                        if not audio_threads:
+                            logger.info("SpeakerOperator: All audio threads cleaned up")
+                            break
+                        if time.time() - cleanup_start > 0.5:  # Log after 0.5s
+                            logger.debug(f"SpeakerOperator: Still waiting for threads: {[t.name for t in audio_threads]}")
+                        time.sleep(0.1)
+                    logger.info(f"SpeakerOperator: Cleanup wait finished after {time.time() - cleanup_start:.2f}s")
+
+                    sink_completed.set()
+                    logger.info("SpeakerOperator: Calling downstream observer.on_completed()")
+                    observer.on_completed()
+
+                # Subscribe to source with wrapped callbacks
+                return source.subscribe(
+                    on_next_wrapper,
+                    on_error_wrapper,
+                    on_completed_wrapper,
+                    scheduler=scheduler
+                )
+
+            return create(subscribe)
+
+        # Forward Observer methods for subscribe() compatibility
+        def on_next(self, value):
+            return self._sink.on_next(value)
+
+        def on_error(self, error):
+            return self._sink.on_error(error)
+
+        def on_completed(self):
+            return self._sink.on_completed()
+
+    return SpeakerOperator(sink)

@@ -23,9 +23,11 @@ from pydantic import Field, validator
 
 gi.require_version("Gst", "1.0")
 
+from reactivex import Observable
+
 from dimos.stream.audio2.base import GStreamerSourceBase
 from dimos.stream.audio2.gstreamer import GStreamerNodeConfig
-from dimos.stream.audio2.types import AudioSource
+from dimos.stream.audio2.types import AudioEvent
 from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger("dimos.stream.audio2.input.signal")
@@ -150,7 +152,7 @@ def test_signal(
     volume: float = 0.8,
     duration: Optional[float] = None,
     **kwargs,
-) -> AudioSource:
+) -> Observable[AudioEvent]:
     """Create a test signal generator source.
 
     Args:
@@ -163,35 +165,31 @@ def test_signal(
             - properties: GStreamer element properties
 
     Returns:
-        AudioSource function that creates the observable
+        Observable that emits AudioEvents
 
     Examples:
         # Generate a 1kHz sine wave
-        source = test_signal(frequency=1000)
+        test_signal(frequency=1000).subscribe(speaker())
 
         # Generate white noise at 16kHz mono
-        source = test_signal(
+        test_signal(
             waveform=WaveformType.WHITE_NOISE,
             output=AudioSpec(
                 format=AudioFormat.PCM_F32LE,
                 sample_rate=16000,
                 channels=1
             )
-        )
+        ).subscribe(speaker())
 
         # Generate a 5 second square wave
-        source = test_signal(
+        test_signal(
             waveform=WaveformType.SQUARE,
             frequency=100,
             duration=5.0
-        )
+        ).subscribe(speaker())
     """
     config = TestSignalConfig(
         waveform=waveform, frequency=frequency, volume=volume, duration=duration, **kwargs
     )
 
-    def create_source():
-        node = TestSignalNode(config)
-        return node.create_observable()
-
-    return create_source
+    return TestSignalNode(config).create_observable()
