@@ -119,7 +119,7 @@ class SoundcardOutputNode(GStreamerSinkBase):
                     sink_to_configure,
                     self.config.properties,
                     skip_properties=set(),
-                    element_name="sink"
+                    element_name="sink",
                 )
 
 
@@ -156,6 +156,7 @@ class BlockingSpeaker:
 
         # Wait for the sink to finish processing
         import time
+
         max_wait = 10.0
         start = time.time()
         while self._sink._is_playing and (time.time() - start) < max_wait:
@@ -165,8 +166,9 @@ class BlockingSpeaker:
         max_cleanup_wait = 5.0
         cleanup_start = time.time()
         while (time.time() - cleanup_start) < max_cleanup_wait:
-            file_input_threads = [t for t in threading.enumerate()
-                                  if "FileInput" in t.name and t.is_alive()]
+            file_input_threads = [
+                t for t in threading.enumerate() if "FileInput" in t.name and t.is_alive()
+            ]
             if not file_input_threads:
                 break
             time.sleep(0.1)
@@ -177,11 +179,11 @@ class BlockingSpeaker:
     def __del__(self):
         """When the speaker goes out of scope, wait for completion and cleanup."""
         # Block until playback completes
-        if hasattr(self, '_started') and self._started:
+        if hasattr(self, "_started") and self._started:
             self.wait_for_completion()
 
         # Stop the sink if it's still running
-        if hasattr(self, '_sink'):
+        if hasattr(self, "_sink"):
             self._sink.stop()
 
 
@@ -266,6 +268,7 @@ def speaker(
 
                 def on_completed_wrapper():
                     from dimos.utils.logging_config import setup_logger
+
                     logger = setup_logger("dimos.stream.audio2.output.soundcard")
                     logger.info("SpeakerOperator: on_completed received from source")
 
@@ -274,35 +277,51 @@ def speaker(
                     # Wait for sink to actually finish processing
                     # This is where the sink plays remaining audio and cleans up
                     import time
+
                     max_wait = 15.0
                     start = time.time()
                     # Get the actual sink node (unwrap BlockingSpeaker if present)
-                    actual_sink = self._sink._sink if hasattr(self._sink, '_sink') else self._sink
-                    logger.info(f"SpeakerOperator: Waiting for sink to finish (is_playing={getattr(actual_sink, '_is_playing', 'N/A')})")
-                    while hasattr(actual_sink, '_is_playing') and actual_sink._is_playing:
+                    actual_sink = self._sink._sink if hasattr(self._sink, "_sink") else self._sink
+                    logger.info(
+                        f"SpeakerOperator: Waiting for sink to finish (is_playing={getattr(actual_sink, '_is_playing', 'N/A')})"
+                    )
+                    while hasattr(actual_sink, "_is_playing") and actual_sink._is_playing:
                         if time.time() - start > max_wait:
                             logger.warning("SpeakerOperator: Timeout waiting for sink to finish")
                             break
                         time.sleep(0.1)
-                    logger.info(f"SpeakerOperator: Sink finished playing after {time.time() - start:.2f}s")
+                    logger.info(
+                        f"SpeakerOperator: Sink finished playing after {time.time() - start:.2f}s"
+                    )
 
                     # Wait for cleanup threads to finish
-                    max_cleanup_wait = 5.0
+                    max_cleanup_wait = 1.0
                     cleanup_start = time.time()
                     logger.info("SpeakerOperator: Waiting for cleanup threads")
                     while (time.time() - cleanup_start) < max_cleanup_wait:
                         # Check for any audio-related threads still running
-                        audio_threads = [t for t in threading.enumerate()
-                                       if any(name in t.name for name in
-                                             ['FileInput', 'TestSignal', 'GStreamerMainLoop'])
-                                       and t.is_alive()]
+                        # Exclude -notify threads (they're waiting for US to complete)
+                        audio_threads = [
+                            t
+                            for t in threading.enumerate()
+                            if any(
+                                name in t.name
+                                for name in ["FileInput", "TestSignal", "GStreamerMainLoop"]
+                            )
+                            and "-notify" not in t.name  # Don't wait for notification threads
+                            and t.is_alive()
+                        ]
                         if not audio_threads:
                             logger.info("SpeakerOperator: All audio threads cleaned up")
                             break
-                        if time.time() - cleanup_start > 0.5:  # Log after 0.5s
-                            logger.debug(f"SpeakerOperator: Still waiting for threads: {[t.name for t in audio_threads]}")
+                        if time.time() - cleanup_start > 0.1:  # Log after 0.1s
+                            logger.info(
+                                f"SpeakerOperator: Still waiting for threads: {[t.name for t in audio_threads]}"
+                            )
                         time.sleep(0.1)
-                    logger.info(f"SpeakerOperator: Cleanup wait finished after {time.time() - cleanup_start:.2f}s")
+                    logger.info(
+                        f"SpeakerOperator: Cleanup wait finished after {time.time() - cleanup_start:.2f}s"
+                    )
 
                     sink_completed.set()
                     logger.info("SpeakerOperator: Calling downstream observer.on_completed()")
@@ -310,10 +329,7 @@ def speaker(
 
                 # Subscribe to source with wrapped callbacks
                 return source.subscribe(
-                    on_next_wrapper,
-                    on_error_wrapper,
-                    on_completed_wrapper,
-                    scheduler=scheduler
+                    on_next_wrapper, on_error_wrapper, on_completed_wrapper, scheduler=scheduler
                 )
 
             return create(subscribe)

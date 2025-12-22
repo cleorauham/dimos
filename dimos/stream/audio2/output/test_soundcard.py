@@ -42,5 +42,6 @@ def test_speaker_with_file():
     # Clean API: pipe speaker and run to block
     file_input(
         file_path=str(get_data("out_of_date.wav")),
-        realtime=False,  # Fast playback for testing
+        realtime=True,  # Real-time playback
+        output=AudioSpec(format=AudioFormat.PCM_F32LE),  # Output raw audio
     ).pipe(speaker()).run()

@@ -85,21 +85,33 @@ def release_mainloop():
     """
     global _mainloop_thread, _mainloop, _mainloop_refs
 
+    import threading
+    import traceback
+
+    calling_thread = threading.current_thread().name
+
     with _mainloop_lock:
         if _mainloop_refs > 0:
             _mainloop_refs -= 1
-            logger.info(f"MainLoop reference released: {_mainloop_refs}")
+            logger.info(
+                f"MainLoop reference released by {calling_thread}: {_mainloop_refs} remaining"
+            )
 
             if _mainloop_refs == 0 and _mainloop:
                 # Last user - stop the mainloop
-                logger.info("Stopping GStreamer MainLoop (last reference)")
+                logger.info(
+                    f"Stopping GStreamer MainLoop (last reference released by {calling_thread})"
+                )
+                logger.debug(f"Release stack trace:\n{''.join(traceback.format_stack())}")
                 _mainloop.quit()
 
                 # Wait for the thread to finish to ensure clean shutdown
                 # But don't try to join if we're in the MainLoop thread itself
-                import threading
-                if (_mainloop_thread and _mainloop_thread.is_alive() and
-                    threading.current_thread() != _mainloop_thread):
+                if (
+                    _mainloop_thread
+                    and _mainloop_thread.is_alive()
+                    and threading.current_thread() != _mainloop_thread
+                ):
                     _mainloop_thread.join(timeout=2.0)
                     if _mainloop_thread.is_alive():
                         logger.warning("MainLoop thread did not stop cleanly")
@@ -107,7 +119,9 @@ def release_mainloop():
                 _mainloop = None
                 _mainloop_thread = None
         else:
-            logger.warning("Trying to release mainloop with no references")
+            logger.warning(
+                f"Trying to release mainloop with no references (called by {calling_thread})"
+            )
 
 
 def _cleanup_mainloop_at_exit():
@@ -217,7 +231,9 @@ class GStreamerPipelineBase:
         """
         # Debug log all message types
         if message.type != Gst.MessageType.STATE_CHANGED:  # Skip noisy state change messages
-            logger.debug(f"Bus message: {message.type} from {message.src.get_name() if message.src else 'unknown'}")
+            logger.debug(
+                f"Bus message: {message.type} from {message.src.get_name() if message.src else 'unknown'}"
+            )
 
         if message.type == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
@@ -227,7 +243,9 @@ class GStreamerPipelineBase:
             err, debug = message.parse_warning()
             logger.warning(f"Pipeline warning: {err}, {debug}")
         elif message.type == Gst.MessageType.EOS:
-            logger.info(f"End of stream received from {message.src.get_name() if message.src else 'unknown'}")
+            logger.info(
+                f"End of stream received from {message.src.get_name() if message.src else 'unknown'}"
+            )
             self._handle_eos()
 
     def _handle_error(self, error):
@@ -241,6 +259,7 @@ class GStreamerPipelineBase:
     def _setup_bus(self, pipeline):
         """Set up message bus for the pipeline."""
         bus = pipeline.get_bus()
+        # Add signal watch - this processes messages in the GLib MainLoop
         bus.add_signal_watch()
         bus.connect("message", self._on_bus_message)
 

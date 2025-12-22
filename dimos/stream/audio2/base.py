@@ -146,20 +146,39 @@ class GStreamerSourceBase(GStreamerPipelineBase, ABC):
                 self._appsink,
                 self.config.properties,
                 skip_properties={"emit-signals", "sync"},
-                element_name="appsink"
+                element_name="appsink",
             )
 
     def _handle_eos(self):
         """Handle end of stream."""
+        import threading
+
         logger.info(f"{self._get_source_name()}: End of stream")
         self._running = False
+
+        # Call observer.on_completed() in a separate thread to avoid blocking
+        # (downstream operators may block waiting for cleanup)
         if self._observer:
-            self._observer.on_completed()
-        # Schedule cleanup in a separate thread to avoid deadlock
-        # (EOS handler runs in GStreamer thread, can't join itself)
-        import threading
-        self._cleanup_thread = threading.Thread(target=self._cleanup_on_completion, daemon=True)
-        self._cleanup_thread.start()
+
+            def notify_completion():
+                logger.info(f"{self._get_source_name()}: Calling observer.on_completed()")
+                self._observer.on_completed()
+
+            threading.Thread(
+                target=notify_completion, daemon=True, name=f"{self._get_source_name()}-notify"
+            ).start()
+
+        # Schedule cleanup in a separate thread
+        try:
+            self._cleanup_thread = threading.Thread(
+                target=self._cleanup_on_completion,
+                daemon=True,
+                name=f"{self._get_source_name()}-cleanup",
+            )
+            self._cleanup_thread.start()
+            logger.info(f"{self._get_source_name()}: Cleanup thread started")
+        except Exception as e:
+            logger.error(f"{self._get_source_name()}: Failed to start cleanup thread: {e}")
 
     def _handle_error(self, error):
         """Handle pipeline errors."""
@@ -242,32 +261,32 @@ class GStreamerSourceBase(GStreamerPipelineBase, ABC):
         # Mark as not running first
         self._running = False
 
-        # Stop pipeline
+        # Stop pipeline (check again inside to handle race conditions)
         if self._pipeline:
-            logger.info(f"{self._get_source_name()}: Setting pipeline to NULL")
-            self._pipeline.set_state(Gst.State.NULL)
+            logger.debug(f"{self._get_source_name()}: Setting pipeline to NULL")
+            try:
+                self._pipeline.set_state(Gst.State.NULL)
+            except (AttributeError, RuntimeError):
+                # Pipeline may have been cleaned up by another thread
+                pass
 
         # Wait for pull thread to finish
         if self._pull_thread and self._pull_thread.is_alive():
-            logger.info(f"{self._get_source_name()}: Waiting for pull thread '{self._pull_thread_name}' to finish")
+            logger.debug(f"{self._get_source_name()}: Waiting for pull thread to finish")
             self._pull_thread.join(timeout=2.0)
             if self._pull_thread.is_alive():
                 logger.warning(f"Pull thread '{self._pull_thread_name}' did not stop in time")
-            else:
-                logger.info(f"{self._get_source_name()}: Pull thread finished")
 
-        # Clean up pipeline resources
+        # Clean up pipeline resources (this also releases MainLoop reference)
+        # Note: This might be called redundantly if disposal also happens, but _cleanup_pipeline() is idempotent
         self._cleanup_pipeline()
-
-        # Release MainLoop reference
-        from dimos.stream.audio2.gstreamer import release_mainloop
-        release_mainloop()
 
         logger.info(f"{self._get_source_name()}: Cleanup complete")
 
     def _generate_thread_name(self) -> str:
         """Generate a unique thread name for debugging."""
         import random
+
         # Use random number to avoid collisions
         unique_id = random.randint(1000, 9999)
         return f"{self._get_source_name()}-{unique_id}"
@@ -415,16 +434,28 @@ class GStreamerSinkBase(GStreamerPipelineBase, ABC):
 
     def _handle_eos(self):
         """Handle end of stream - automatically stop the sink."""
-        logger.info(f"{self._get_sink_name()}: EOS received, scheduling stop")
+        import threading
+        import traceback
+
+        logger.info(
+            f"{self._get_sink_name()}: EOS received in thread {threading.current_thread().name}"
+        )
+        logger.debug(
+            f"{self._get_sink_name()}: EOS stack trace:\n{''.join(traceback.format_stack())}"
+        )
+
         # Schedule stop in a separate thread to avoid deadlock
         # (EOS handler runs in GStreamer thread, can't join itself)
-        import threading
         def stop_and_log():
             logger.info(f"{self._get_sink_name()}: Calling stop() from EOS handler")
             self.stop()
-            logger.info(f"{self._get_sink_name()}: stop() completed, _is_playing={self._is_playing}")
+            logger.info(
+                f"{self._get_sink_name()}: stop() completed, _is_playing={self._is_playing}"
+            )
 
-        threading.Thread(target=stop_and_log, daemon=True, name=f"{self._get_sink_name()}-stop").start()
+        threading.Thread(
+            target=stop_and_log, daemon=True, name=f"{self._get_sink_name()}-stop"
+        ).start()
 
     def _audio_event_to_buffer(self, event: AudioEvent) -> Gst.Buffer:
         """Convert an AudioEvent to a GStreamer buffer."""
