@@ -50,5 +50,5 @@ yolo11n.pt
 .envrc
 
 # VR SSL Certificates
-dimos/vr/certificates/*.pem
-dimos/vr/certificates/*.keydimos/vr/__pycache__/
+assets/vr/certificates/*.pem
+dimos/vr/certificates/*.key

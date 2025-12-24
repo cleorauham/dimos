@@ -35,6 +35,12 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 
+# Pre-compute transformation matrices for performance
+_WEBXR_TO_ROS_MATRIX = np.array([[0, 0, -1], [-1, 0, 0], [0, 1, 0]])
+_FRAME_TRANSFORM = R.from_matrix(_WEBXR_TO_ROS_MATRIX)
+_FRAME_TRANSFORM_INV = _FRAME_TRANSFORM.inv()
+
+
 def webxr_to_ros_position(webxr_pos: tuple[float, float, float]) -> tuple[float, float, float]:
     """
     Transform position from WebXR to ROS coordinate system.
@@ -67,7 +73,8 @@ def webxr_to_ros_quaternion(
     """
     Transform quaternion from WebXR to ROS coordinate system.
 
-    The transformation rotates the coordinate frame to align WebXR axes with ROS axes.
+    Uses similarity transformation: q_new = F * q_old * F^(-1)
+    This is a passive transformation (changing coordinate frames).
 
     Args:
         webxr_quat: Quaternion as (x, y, z, w) in WebXR frame
@@ -75,18 +82,8 @@ def webxr_to_ros_quaternion(
     Returns:
         Quaternion as (x, y, z, w) in ROS frame
     """
-    # Create rotation from WebXR quaternion
     quat_webxr = R.from_quat(webxr_quat)
-
-    # Frame transformation matrix matching position transform:
-    # ROS X = -WebXR Z, ROS Y = -WebXR X, ROS Z = WebXR Y
-    transform_matrix = np.array([[0, 0, -1], [-1, 0, 0], [0, 1, 0]])
-    frame_transform = R.from_matrix(transform_matrix)
-
-    # Transform the quaternion
-    quat_ros = frame_transform * quat_webxr
-
-    # Return as (x, y, z, w) tuple
+    quat_ros = _FRAME_TRANSFORM * quat_webxr * _FRAME_TRANSFORM.inv()
     return tuple(quat_ros.as_quat())
 
 
@@ -142,20 +139,33 @@ def ros_to_webxr_quaternion(
     """
     Transform quaternion from ROS to WebXR coordinate system (inverse transform).
 
+    Uses similarity transformation: q_new = F^(-1) * q_old * F
+    This is a passive transformation (changing coordinate frames).
+
     Args:
         ros_quat: Quaternion as (x, y, z, w) in ROS frame
 
     Returns:
         Quaternion as (x, y, z, w) in WebXR frame
     """
-    # Create rotation from ROS quaternion
     quat_ros = R.from_quat(ros_quat)
-
-    # Frame transformation matrix (same as forward transform)
-    transform_matrix = np.array([[0, 0, -1], [-1, 0, 0], [0, 1, 0]])
-    frame_transform = R.from_matrix(transform_matrix)
-
-    # Apply inverse transformation
-    quat_webxr = frame_transform.inv() * quat_ros
-
+    quat_webxr = _FRAME_TRANSFORM_INV * quat_ros * _FRAME_TRANSFORM
     return tuple(quat_webxr.as_quat())
+
+
+def ros_to_webxr_pose(
+    ros_pos: tuple[float, float, float], ros_quat: tuple[float, float, float, float]
+) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
+    """
+    Transform complete pose (position + orientation) from ROS to WebXR.
+
+    Args:
+        ros_pos: Position as (x, y, z) in ROS frame
+        ros_quat: Quaternion as (x, y, z, w) in ROS frame
+
+    Returns:
+        Tuple of (position, quaternion) in WebXR frame
+    """
+    webxr_pos = ros_to_webxr_position(ros_pos)
+    webxr_quat = ros_to_webxr_quaternion(ros_quat)
+    return (webxr_pos, webxr_quat)

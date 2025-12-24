@@ -23,6 +23,7 @@ from dimos_lcm.geometry_msgs import PoseStamped as LCMPoseStamped
 from dimos_lcm.std_msgs import Header as LCMHeader
 from dimos_lcm.std_msgs import Time as LCMTime
 
+
 try:
     from geometry_msgs.msg import PoseStamped as ROSPoseStamped
 except ImportError:
@@ -87,6 +88,52 @@ class PoseStamped(Pose, Timestamped):
             f"PoseStamped(pos=[{self.x:.3f}, {self.y:.3f}, {self.z:.3f}], "
             f"euler=[{self.roll:.3f}, {self.pitch:.3f}, {self.yaw:.3f}])"
         )
+
+    def __matmul__(self, transform: LCMTransform | Transform) -> Pose:
+        return self + transform
+
+    def __add__(self, other: "Pose" | PoseConvertable | LCMTransform | Transform) -> "Pose":
+        """Compose two poses or apply a transform (transform composition).
+
+        The operation self + other represents applying transformation 'other'
+        in the coordinate frame defined by 'self'. This is equivalent to:
+        - First apply transformation 'self' (from world to self's frame)
+        - Then apply transformation 'other' (from self's frame to other's frame)
+
+        This matches ROS tf convention where:
+        T_world_to_other = T_world_to_self * T_self_to_other
+
+        Args:
+            other: The pose or transform to compose with this one
+
+        Returns:
+            A new Pose representing the composed transformation
+
+        Example:
+            robot_pose = Pose(1, 0, 0)  # Robot at (1,0,0) facing forward
+            object_in_robot = Pose(2, 0, 0)  # Object 2m in front of robot
+            object_in_world = robot_pose + object_in_robot  # Object at (3,0,0) in world
+
+            # Or with a Transform:
+            transform = Transform()
+            transform.translation = Vector3(2, 0, 0)
+            transform.rotation = Quaternion(0, 0, 0, 1)
+            new_pose = pose + transform
+        """
+        # Handle Transform objects
+        if isinstance(other, Transform):
+            # Convert Transform to Pose using its translation and rotation
+            other_position = Vector3(other.translation)
+            other_orientation = Quaternion(other.rotation)
+
+        new_orientation = self.orientation * other_orientation
+
+        # Transform other's position by self's orientation, then add to self's position
+        rotated_position = self.orientation.rotate_vector(other_position)
+        new_position = self.position + rotated_position
+
+
+        return PoseStamped(self.ts, frame_id = self.frame_id, position=new_position, orientation=new_orientation)
 
     def new_transform_to(self, name: str) -> Transform:
         return self.find_transform(

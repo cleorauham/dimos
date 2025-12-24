@@ -37,7 +37,7 @@ import dimos.core as core
 from dimos.vr.modules import MetaQuestModule
 
 dimos = core.start(1)
-quest = dimos.deploy(MetaQuestModule, port=8881)
+quest = dimos.deploy(MetaQuestModule, port=8881, transform_to_ros=True)
 quest.generate_certificate()
 quest.start()
 
@@ -282,8 +282,8 @@ quest = dimos.deploy(MetaQuestModule, port=8881, transform_to_ros=False)
 from dimos.msgs.geometry_msgs import PoseStamped
 from dimos.vr.modules import MetaQuestModule
 
-# Deploy VR module
-quest = dimos.deploy(MetaQuestModule, port=8881)
+# Deploy VR module with ROS coordinate transform
+quest = dimos.deploy(MetaQuestModule, port=8881, transform_to_ros=True)
 quest.start()
 
 # Connect controller poses to robot arm targets
@@ -308,11 +308,11 @@ from dimos.robot.unitree_webrtc.unitree_g1 import UnitreeG1
 from dimos.core import LCMTransport
 
 robot = UnitreeG1(ip="192.168.123.123")
-quest = dimos.deploy(MetaQuestModule, port=8881)
+quest = dimos.deploy(MetaQuestModule, port=8881, transform_to_ros=True)
 
 # Map VR controllers to robot arms
-quest.controller_left_pose.transport = LCMtransport("/vr/left_arm", PoseStamped)
-quest.controller_right_pose.transport = LCMtransport("/vr/right_arm", PoseStamped)
+quest.controller_left_pose.transport = LCMTransport("/vr/left_arm", PoseStamped)
+quest.controller_right_pose.transport = LCMTransport("/vr/right_arm", PoseStamped)
 
 robot.goal_request.connect(quest.controller_left_pose)
 

@@ -30,10 +30,10 @@ from reactivex.disposable import Disposable
 
 from dimos.constants import DIMOS_PROJECT_ROOT
 from dimos.core import Module, Out, rpc
-from dimos.msgs.geometry_msgs import PoseStamped
+from dimos.msgs.geometry_msgs import PoseStamped, Vector3, Quaternion
 from dimos.msgs.sensor_msgs import Image
-from ..coordinate_transform import webxr_to_ros_pose
 from ..models import ControllerData, ControllerFrame
+from ..coordinate_transform import webxr_to_ros_pose
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +74,6 @@ class MetaQuestModule(Module):
 
         self._camera_queues = {}
         self._camera_disposables = {}
-
-        self._setup_fastapi()
 
     def _setup_fastapi(self):
         """Initialize FastAPI application with VR routes."""
@@ -175,51 +173,49 @@ class MetaQuestModule(Module):
     async def _publish_controller_data(self, frame: ControllerFrame):
         """Publish controller data to output streams."""
         try:
-            if self.controller_both:
-                self.controller_both.publish(frame)
-
-            if frame.left and self.controller_left:
-                self.controller_left.publish(frame.left)
-
-            if frame.right and self.controller_right:
-                self.controller_right.publish(frame.right)
-
             # Publish PoseStamped msg with Pose and Orientation
             if frame.left and frame.left.connected and self.controller_left_pose:
                 # Apply coordinate transform if enabled
                 if self.transform_to_ros:
-                    ros_pos, ros_quat = webxr_to_ros_pose(frame.left.position, frame.left.rotation)
+                    # Transform from WebXR to ROS coordinate system
+                    ros_pos, ros_quat = webxr_to_ros_pose(
+                        frame.left.position,
+                        frame.left.rotation
+                    )
                     left_pose = PoseStamped(
                         ts=frame.timestamp,
-                        frame_id="vr_left_controller_ros",
-                        position=ros_pos,
-                        orientation=ros_quat,
+                        frame_id="world",
+                        position=Vector3(*ros_pos),
+                        orientation=Quaternion(*ros_quat),
                     )
                 else:
                     left_pose = PoseStamped(
                         ts=frame.timestamp,
-                        frame_id="vr_left_controller_webxr",
+                        frame_id="world",
                         position=frame.left.position,
                         orientation=frame.left.rotation,
                     )
+
                 self.controller_left_pose.publish(left_pose)
 
             if frame.right and frame.right.connected and self.controller_right_pose:
                 # Apply coordinate transform if enabled
                 if self.transform_to_ros:
+                    # Transform from WebXR to ROS coordinate system
                     ros_pos, ros_quat = webxr_to_ros_pose(
-                        frame.right.position, frame.right.rotation
+                        frame.right.position,
+                        frame.right.rotation
                     )
                     right_pose = PoseStamped(
                         ts=frame.timestamp,
-                        frame_id="vr_right_controller_ros",
-                        position=ros_pos,
-                        orientation=ros_quat,
+                        frame_id="world",
+                        position=Vector3(*ros_pos),
+                        orientation=Quaternion(*ros_quat),
                     )
                 else:
                     right_pose = PoseStamped(
                         ts=frame.timestamp,
-                        frame_id="vr_right_controller_webxr",
+                        frame_id="world",
                         position=frame.right.position,
                         orientation=frame.right.rotation,
                     )
@@ -254,6 +250,8 @@ class MetaQuestModule(Module):
 
         try:
             self._running = True
+            self._setup_fastapi()
+
             ssl_config = self._get_ssl_config()
 
             config = uvicorn.Config(
