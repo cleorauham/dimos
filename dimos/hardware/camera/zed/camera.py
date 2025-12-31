@@ -16,7 +16,7 @@ from types import TracebackType
 from typing import Any
 
 import cv2
-from dimos_lcm.sensor_msgs import CameraInfo
+from dimos.msgs.sensor_msgs import CameraInfo
 import numpy as np
 import open3d as o3d
 import pyzed.sl as sl
@@ -816,8 +816,6 @@ class ZEDModule(Module):
             ]
 
             msg = CameraInfo(
-                D_length=len(D),
-                header=header,
                 height=resolution.get("height", 0),
                 width=resolution.get("width", 0),
                 distortion_model="plumb_bob",
@@ -827,6 +825,8 @@ class ZEDModule(Module):
                 P=P,
                 binning_x=0,
                 binning_y=0,
+                frame_id=header.frame_id,
+                ts=header.ts,
             )
 
             self.camera_info.publish(msg)

@@ -25,15 +25,15 @@ import queue
 import time
 
 import cv2
-from dimos_lcm.foxglove_msgs import SceneUpdate
+import numpy as np
+from dimos_lcm.foxglove_msgs import ImageAnnotations, SceneUpdate
 
-from dimos.core import LCMTransport
-from dimos.core.blueprints import autoconnect
-from dimos.hardware.camera.zed.camera import zed_module
+from dimos.core import LCMTransport, start
+from dimos.hardware.camera.zed.camera import ZEDModule
 from dimos.msgs.sensor_msgs import CameraInfo, Image
 from dimos.msgs.vision_msgs import Detection3D
-from dimos.perception.object_tracker_3d import ObjectTracker3D, object_tracker_3d
-from dimos.robot.foxglove_bridge import foxglove_bridge
+from dimos.perception.object_tracker_3d import ObjectTracker3D
+from dimos.robot.foxglove_bridge import FoxgloveBridge
 from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
@@ -88,68 +88,58 @@ def draw_overlay(image_cv, mouse_info, tracking_active=False, has_detection=Fals
         cv2.rectangle(image_cv, start, curr, (0, 0, 255), 2)
 
 
-def visualize_detection3d(image_cv, detection: Detection3D):
-    """Visualize a Detection3D message on the image."""
-    if not detection or not detection.results:
+def visualize_annotations(image_cv, annotations: ImageAnnotations):
+    """Visualize ImageAnnotations on the image."""
+    if not annotations:
         return
 
-    bbox = detection.bbox
-    center_x = bbox.center.position.x
-    center_y = bbox.center.position.y
-    width = bbox.size.x
-    height = bbox.size.y
-
-    x1 = int(center_x - width / 2)
-    y1 = int(center_y - height / 2)
-    x2 = int(center_x + width / 2)
-    y2 = int(center_y + height / 2)
-
-    cv2.rectangle(image_cv, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-    if detection.results:
-        hypothesis = detection.results[0].hypothesis
-        label = f"ID: {hypothesis.class_id} ({hypothesis.score:.2f})"
-        cv2.putText(image_cv, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-    if detection.results and detection.results[0].pose:
-        pose = detection.results[0].pose.pose
-        pos_text = f"3D: ({pose.position.x:.2f}, {pose.position.y:.2f}, {pose.position.z:.2f})"
-        cv2.putText(image_cv, pos_text, (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-
-
-def tracker_blueprint():
-    """Create ObjectTracker3D blueprint with ZED camera and Foxglove visualization."""
-    return (
-        autoconnect(
-            zed_module(
-                camera_id=0,
-                resolution="HD720",
-                depth_mode="NEURAL",
-                fps=15,
-                enable_tracking=False,
-                publish_rate=15.0,
-                frame_id="zed_camera",
-            ),
-            object_tracker_3d(tracking_timeout=10.0),
-            foxglove_bridge(),
+    # Draw point annotations (contours, bboxes, etc.)
+    for point_ann in annotations.points:
+        if point_ann.points_length == 0:
+            continue
+        
+        # Convert points to numpy array for OpenCV
+        points = np.array([[int(p.x), int(p.y)] for p in point_ann.points], dtype=np.int32)
+        
+        # Extract color
+        outline_color = (
+            int(point_ann.outline_color.b * 255),
+            int(point_ann.outline_color.g * 255),
+            int(point_ann.outline_color.r * 255),
         )
-        .global_config(n_dask_workers=6)
-        .transports({
-            # ZED outputs
-            ("color_image", Image): LCMTransport("/zed/color_image", Image),
-            ("depth_image", Image): LCMTransport("/zed/depth_image", Image),
-            ("camera_info", CameraInfo): LCMTransport("/zed/camera_info", CameraInfo),
-            
-            # Explicitly bind ObjectTracker3D inputs to ZED topics to ensure connection
-            (ObjectTracker3D, "color_image"): LCMTransport("/zed/color_image", Image),
-            (ObjectTracker3D, "depth_image"): LCMTransport("/zed/depth_image", Image),
-            (ObjectTracker3D, "camera_info"): LCMTransport("/zed/camera_info", CameraInfo),
-            
-            # ObjectTracker3D outputs
-            (ObjectTracker3D, "detection3d"): LCMTransport("/tracker3d/detection3d", Detection3D),
-            (ObjectTracker3D, "scene_update"): LCMTransport("/tracker3d/scene_update", SceneUpdate),
-        })
-    )
+        
+        fill_color = (
+            int(point_ann.fill_color.b * 255),
+            int(point_ann.fill_color.g * 255),
+            int(point_ann.fill_color.r * 255),
+        )
+        
+        # Draw filled polygon if fill color has alpha
+        if point_ann.fill_color.a > 0:
+            overlay = image_cv.copy()
+            cv2.fillPoly(overlay, [points], fill_color)
+            alpha = point_ann.fill_color.a
+            cv2.addWeighted(overlay, alpha, image_cv, 1 - alpha, 0, image_cv)
+        
+        # Draw outline
+        thickness = int(point_ann.thickness) if point_ann.thickness > 0 else 2
+        if point_ann.type == point_ann.LINE_LOOP:
+            cv2.polylines(image_cv, [points], isClosed=True, color=outline_color, thickness=thickness)
+        elif point_ann.type == point_ann.LINE_STRIP:
+            cv2.polylines(image_cv, [points], isClosed=False, color=outline_color, thickness=thickness)
+    
+    # Draw text annotations
+    for text_ann in annotations.texts:
+        position = (int(text_ann.position.x), int(text_ann.position.y))
+        color = (
+            int(text_ann.text_color.b * 255),
+            int(text_ann.text_color.g * 255),
+            int(text_ann.text_color.r * 255),
+        )
+        font_size = text_ann.font_size if text_ann.font_size > 0 else 0.5
+        cv2.putText(image_cv, text_ann.text, position, cv2.FONT_HERSHEY_SIMPLEX, font_size, color, 2)
+
+
 
 
 def main():
@@ -158,27 +148,54 @@ def main():
     from dimos.protocol import pubsub
     pubsub.lcm.autoconf()
 
-    blueprint = tracker_blueprint()
-    coordinator = blueprint.build()
+    dimos = start(6)
 
-    tracker = coordinator.get_instance(ObjectTracker3D)
+    zed = dimos.deploy(
+        ZEDModule,
+        camera_id=0,
+        resolution="HD720",
+        depth_mode="NEURAL",
+        fps=15,
+        enable_tracking=False,
+        publish_rate=15.0,
+        frame_id="zed_camera",
+    )
+
+    tracker = dimos.deploy(ObjectTracker3D, tracking_timeout=10.0)
+
+    bridge = dimos.deploy(FoxgloveBridge)
+
+    zed.color_image.transport = LCMTransport("/zed/color_image", Image)
+    zed.depth_image.transport = LCMTransport("/zed/depth_image", Image)
+    zed.camera_info.transport = LCMTransport("/zed/camera_info", CameraInfo)
+
+    tracker.color_image.connect(zed.color_image)
+    tracker.depth_image.connect(zed.depth_image)
+    tracker.camera_info.connect(zed.camera_info)
+
+    tracker.annotations.transport = LCMTransport("/tracker3d/annotations", ImageAnnotations)
+    tracker.detection3d.transport = LCMTransport("/tracker3d/detection3d", Detection3D)
+
+    zed.start()
+    tracker.start()
+    bridge.start()
 
     color_queue = queue.Queue(maxsize=2)
-    detection_queue = queue.Queue(maxsize=2)
+    annotations_queue = queue.Queue(maxsize=2)
 
     def color_handler(msg):
         if not color_queue.full():
             color_queue.put(msg)
 
-    def detection_handler(detection):
-        if not detection_queue.full():
-            detection_queue.put(detection)
+    def annotations_handler(annotations):
+        if not annotations_queue.full():
+            annotations_queue.put(annotations)
 
     color_transport = LCMTransport("/zed/color_image", Image)
-    detection_transport = LCMTransport("/tracker3d/detection3d", Detection3D)
+    annotations_transport = LCMTransport("/tracker3d/annotations", ImageAnnotations)
 
     color_transport.subscribe(color_handler)
-    detection_transport.subscribe(detection_handler)
+    annotations_transport.subscribe(annotations_handler)
 
     window_name = "ObjectTracker3D - ZED Integration Test"
     cv2.namedWindow(window_name)
@@ -191,15 +208,15 @@ def main():
     print("- Press 'q' to quit")
 
     tracking_active = False
-    last_detection = None
+    last_annotations = None
     last_image = None
 
     while True:
         while not color_queue.empty():
             last_image = color_queue.get_nowait()
 
-        while not detection_queue.empty():
-            last_detection = detection_queue.get_nowait()
+        while not annotations_queue.empty():
+            last_annotations = annotations_queue.get_nowait()
 
         if last_image is None:
             time.sleep(0.01)
@@ -211,9 +228,10 @@ def main():
         elif key == ord('r'):
             logger.info("Resetting tracking")
             tracker.stop()
+            time.sleep(0.5)
             tracker.start()
             tracking_active = False
-            last_detection = None
+            last_annotations = None
             mouse_state["new_bbox"] = None
             print("Tracking reset")
 
@@ -233,16 +251,18 @@ def main():
                 print("Tracking lost - draw a new bbox to restart")
 
         image_cv = last_image.to_opencv()
-        draw_overlay(image_cv, mouse_state, tracking_active=tracking_active, has_detection=(last_detection is not None))
+        draw_overlay(image_cv, mouse_state, tracking_active=tracking_active, has_detection=(last_annotations is not None))
 
-        if tracking_active and last_detection:
-            visualize_detection3d(image_cv, last_detection)
+        if tracking_active and last_annotations:
+            visualize_annotations(image_cv, last_annotations)
 
         cv2.imshow(window_name, image_cv)
 
     logger.info("Cleaning up")
     cv2.destroyAllWindows()
-    coordinator.stop_all_modules()
+    tracker.stop()
+    zed.stop()
+    bridge.stop()
     logger.info("Test completed")
 
 
