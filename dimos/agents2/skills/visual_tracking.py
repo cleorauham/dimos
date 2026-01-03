@@ -14,10 +14,10 @@
 
 import threading
 
+from cv_bridge import CvBridge
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image as ROSImage, CompressedImage as ROSCompressedImage
-from cv_bridge import CvBridge
+from sensor_msgs.msg import CompressedImage as ROSCompressedImage, Image as ROSImage
 from std_msgs.msg import Bool as ROSBool
 from vision_msgs.msg import (
     BoundingBox2D as ROSBoundingBox2D,
@@ -88,7 +88,7 @@ class VisualTrackingSkillContainer(SkillModule):
         super().stop()
 
     def _on_compressed_image(self, msg: ROSCompressedImage) -> None:
-        cv_image = self._bridge.compressed_imgmsg_to_cv2(msg, 'rgb8')
+        cv_image = self._bridge.compressed_imgmsg_to_cv2(msg, "rgb8")
         self._latest_image = Image.from_numpy(cv_image)
 
     def _on_tracking_status(self, msg: ROSBool) -> None:
