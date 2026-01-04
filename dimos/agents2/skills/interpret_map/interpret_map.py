@@ -20,7 +20,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from dimos.agents2.skills.interpret_map import OccupancyGridImage
+from dimos.agents2.skills.interpret_map.OccupancyGridImage import OccupancyGridImage
 from dimos.core.module import Module
 from dimos.core.rpc_client import RpcCall
 from dimos.core.skill_module import SkillModule
@@ -56,7 +56,7 @@ class InterpretMapSkill(SkillModule):
         self._robot_pose = self.tf.get("world", "base_link")
 
     @skill()
-    def get_goal_position(self, description: str | None = None) -> Vector3 | str:
+    def get_goal_position(self, description: str | None = None) -> str:
         """
         Identify goal position from map, based on description of location.
         Use the general description of location provided by user.
@@ -83,8 +83,8 @@ class InterpretMapSkill(SkillModule):
         if costmap is None:
             return "No map available."
 
-        grid_image = OccupancyGridImage.from_occupancygrid(  # type: ignore[attr-defined]
-            occupancy_grid=costmap, size=(1024, 1024), flip_vertical=True, robot_pose=robot_pose
+        grid_image = OccupancyGridImage.from_occupancygrid(
+            occupancy_grid=costmap, flip_vertical=True, robot_pose=robot_pose
         )
 
         image = grid_image.image
@@ -92,10 +92,10 @@ class InterpretMapSkill(SkillModule):
         prompt = (
             "Look at this image carefully \n"
             "it represents a noisy 2D occupancy grid map where,\n"
-            " - white area is free space, \n"
-            " - gray area is unexplored space, \n"
-            " - red areas are obstacles, \n"
-            " - green circle represents the robot's position and the attached arrow indicates its orientation. \n"
+            " - white pixels represent free space, \n"
+            " - gray pixels represent unexplored space, \n"
+            " - red pixels are obstacles, \n"
+            " - black circle represents the robot's position and the attached arrow indicates the direction it is facing. \n"
             f"Identify a location in free space based on the following description: {description}\n"
             "Return ONLY a JSON object with this exact format:\n"
             '{"point": [x, y]}\n'
@@ -125,7 +125,8 @@ class InterpretMapSkill(SkillModule):
         # get world coordinates from pixel for navigation
         goal_pose = grid_image.pixel_to_world(x, y, size=(1024, 1024), flip_vertical=True)
 
-        return goal_pose  # type: ignore[no-any-return]
+        # return goal_pose  # type: ignore[no-any-return]
+        return f"x = {goal_pose.x}, y = {goal_pose.y}"
 
 
 def extract_coordinates(point: dict[str, list[int]] | None) -> list[int]:

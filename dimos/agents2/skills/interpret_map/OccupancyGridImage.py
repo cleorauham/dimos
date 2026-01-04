@@ -113,7 +113,7 @@ class OccupancyGridImage:
 
         # keep original aspect ratio if size not specified
         if size is None:
-            size = (1024, int(1024 * (occupancy_grid.height / occupancy_grid.width)))
+            size = cls._get_encoded_image_size(occupancy_grid)
 
         # resize
         image_arr_resized = cv2.resize(image_arr, size, interpolation=cv2.INTER_NEAREST)
@@ -129,6 +129,19 @@ class OccupancyGridImage:
         )
 
         return occupancy_grid_image
+
+    @staticmethod
+    def _get_encoded_image_size(occupancy_grid: OccupancyGrid) -> tuple[int, int]:
+        # keep max dimension 1024 for encoding
+        MAX_IMAGE_DIMENSION = 1024
+        aspect_ratio = occupancy_grid.width / occupancy_grid.height
+        if aspect_ratio >= 1.0:
+            width = MAX_IMAGE_DIMENSION
+            height = int(MAX_IMAGE_DIMENSION / aspect_ratio)
+        else:
+            height = MAX_IMAGE_DIMENSION
+            width = int(MAX_IMAGE_DIMENSION * aspect_ratio)
+        return (width, height)
 
     @staticmethod
     def _overlay_robot_pose(
