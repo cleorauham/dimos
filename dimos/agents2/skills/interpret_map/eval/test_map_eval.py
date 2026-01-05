@@ -60,7 +60,9 @@ class SetupOccupancyGrid:
             Transform(
                 frame_id="world",
                 child_frame_id="base_link",
-                translation=Vector3(*self.robot_pose["position"]),
+                translation=Vector3(
+                    [i * self.occupancy_grid.info.resolution for i in self.robot_pose["position"]]
+                ),
                 rotation=Quaternion(*self.robot_pose["orientation"]),
             )
         ]
@@ -69,7 +71,7 @@ class SetupOccupancyGrid:
     def pose_stamped(self) -> PoseStamped:
         return PoseStamped(
             frame_id="base_link",
-            position=self.robot_pose["position"],
+            position=[i * self.occupancy_grid.info.resolution for i in self.robot_pose["position"]],
             orientation=self.robot_pose["orientation"],
         )
 
@@ -78,7 +80,7 @@ class SetupOccupancyGrid:
         width, height = self._get_encoded_image_size()
 
         og_image = OccupancyGridImage.from_occupancygrid(
-            self.occupancy_grid, flip_vertical=False, robot_pose=robot_pose, size=(width, height)
+            self.occupancy_grid, flip_vertical=False, robot_pose=robot_pose
         )
         self.image = og_image.image
         self.occupancy_grid_image = og_image
@@ -183,12 +185,18 @@ def goal_placement_prompt(description: str) -> str:
         "it represents a noisy 2D occupancy grid map where,\n"
         " - white pixels represent free space, \n"
         " - gray pixels represent unexplored space, \n"
-        " - red pixels are obstacles, \n"
-        " - black circle represents the robot's position and the attached arrow indicates the direction it is facing. \n"
+        " - black pixels are obstacles and walls, \n"
+        " - red circle represents the robot's position and the attached arrow indicates the direction it is facing. \n"
         f"Identify a location in free space based on the following description: {description}\n"
         "Return ONLY a JSON object with this exact format:\n"
         '{"point": [x, y]}\n'
         f"where x,y are the pixel coordinates of the goal position in the image. \n"
+        "The image has been rotated so that the robot always faces straight upwards."
+        "- The robot's front is towards the top edge of the image."
+        "- The robot's back is towards the bottom edge."
+        "- The robot's left is towards the left edge."
+        "- The robot's right is towards the right edge."
+        "Make sure the goal point is accessible to the robot via free space."
     )
 
     return prompt
@@ -200,8 +208,13 @@ def interpretability_prompt(question: str) -> str:
         "it represents a noisy 2D occupancy grid map where,\n"
         " - white pixels represent free space, \n"
         " - gray pixels represent unexplored space, \n"
-        " - red pixels are obstacles, \n"
-        " - black circle represents the robot's position and the attached arrow indicates the direction it is facing. \n"
+        " - black pixels are obstacles and walls, \n"
+        " - red circle represents the robot's position and the attached arrow indicates the direction it is facing. \n"
+        "The image has been rotated so that the robot always faces straight upwards."
+        "- The robot's front is towards the top edge of the image."
+        "- The robot's back is towards the bottom edge."
+        "- The robot's left is towards the left edge."
+        "- The robot's right is towards the right edge."
         f"Answer the following question based on this image: {question}\n"
     )
     return prompt
@@ -421,5 +434,5 @@ def debug_image_with_identified_point(image_frame, point: tuple[int, int], filep
     """Utility to visualize identified points on the image for debugging."""
     debug_image = image_frame.copy()
     x, y = point
-    cv2.drawMarker(debug_image, (x, y), (0, 0, 0), cv2.MARKER_CROSS, 15, 2)
+    cv2.drawMarker(debug_image, (x, y), (0, 255, 0), cv2.MARKER_CROSS, 15, 2)
     cv2.imwrite(filepath, debug_image)

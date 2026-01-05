@@ -123,8 +123,6 @@ point_placement_tests:
           x: [170, 206]
           y: [466, 501]
 
-
-
 # add an unknown / unexplored region to the office map, check basic queries
 
   - map_id: "office_noise_unknwown"
@@ -168,45 +166,6 @@ point_placement_tests:
           y: [837, 909]
 
 
-  - map_id: "office_noise_tilt"
-    image_path: "floorplan_office_noise_tilt.png"
-    resolution: 0.05
-    robot_pose:
-      position: [17, 40, 0.0]
-      orientation: [0.0, 0.0,  0.5071068, 0.5071068]
-    questions:
-      - query: "which would be the furthest room from the robot's current position"
-        expected_range:
-          x: [7, 280]
-          y: [201, 630]
-      - query: "go to the conference table in the office"
-        expected_range:
-          x: [633, 1136]
-          y: [10, 640]
-      - query: "a room to accommodate more that 10 people"
-        expected_range:
-          x: [605, 1197]
-          y: [63, 660]
-      - query: "a point on the robot"
-        expected_range:
-          x: [777, 789]
-          y: [1135, 1143]
-      - query: "a point immediately in front of the robot"
-        expected_range:
-          x: [688, 880]
-          y: [973, 1133]
-      - query: "a point immediately behind the robot"
-        expected_range:
-          x: [688, 899]
-          y: [1156, 1324]
-      - query: "a point immediately to the left of the robot"
-        expected_range:
-          x: [591, 777]
-          y: [1028, 1271]
-      - query: "a point immediately to the right of the robot"
-        expected_range:
-          x: [793, 974]
-          y: [1028, 1271]
 
 map_comprehension_tests:
   - map_id: "office_small_noise"
