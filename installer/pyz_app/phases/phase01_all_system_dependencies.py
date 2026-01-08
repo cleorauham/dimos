@@ -50,10 +50,9 @@ def phase1(system_analysis, selected_features) -> str | None:
         print("Please make sure the following are installed:")
         print("    - CUDA drivers (11.x or higher)")
         print("    - CUDA toolkit (11.x or higher)")
-        if "sim" in selected_features:
-            print("    - CUDA-enabled simulation backend (nvidia-cuda-toolkit)")
+        # based on https://github.com/dimensionalOS/dimos/blob/fc447fb81d03a079caf695402cb0c81b098719ad/dimos/simulation/README.md?plain=1#L20
         p.confirm("Press enter once you have these installed")
-        
+
     print()
     print()
 
