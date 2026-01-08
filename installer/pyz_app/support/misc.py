@@ -166,6 +166,7 @@ def get_project_directory() -> Path:
             _project_directory = Path.cwd()
         else:
             print("Dimos needs to be installed to a project (not just a global install)")
+            print("Ex: if you're in your home folder, or your desktop, say 'no' to this question")
             if p.ask_yes_no("Are you currently in a project directory?"):
                 _project_directory = Path.cwd()
             else:
