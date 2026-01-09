@@ -24,13 +24,15 @@
 
 <!-- NOTE: these lists potentially need to be edited every time the pyproject.toml is updated! -->
 You can install those:
-- on MacOS with <detail><summary>(click to expand)</summary>
+- on MacOS with 
+<detail><summary>(click to expand)</summary>
 ```sh
 brew install cmake curl grep gnu-sed portaudio ffmpeg git-lfs jpeg-turbo lcm libpng openssl pkg-config gstreamer cairo python@3.13 opencv
 ```
 </detail>
 
-- on Ubuntu/Debian with <detail><summary>(click to expand)</summary>
+- on Ubuntu/Debian with 
+<detail><summary>(click to expand)</summary>
 
 ```sh
 sudo apt-get install -y build-essential ca-certificates cmake curl pkg-config net-tools openssl python3 python3-pip python3-opencv python3-pyaudio iputils-ping ffmpeg g++ git git-lfs iproute2 libjpeg-dev libjpeg-turbo8-dev liblcm-dev liblcms2-dev libopencv-dev libpng-dev libportaudio2 gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav python3-gi python3-gi-cairo
