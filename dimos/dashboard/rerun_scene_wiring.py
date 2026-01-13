@@ -27,13 +27,16 @@ Dynamic TF visualization remains the responsibility of `TFRerunModule`.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Protocol
 
 import rerun as rr
 
 from dimos.core import Module, rpc
 from dimos.core.global_config import GlobalConfig
 from dimos.dashboard.rerun_init import connect_rerun
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 class _HasToRerun(Protocol):
@@ -141,6 +144,9 @@ class RerunSceneWiringModule(Module):
             _attach_entity(cam_entity, cam_frame)
             rr.log(cam_entity, cam_info.to_rerun(), static=True)  # type: ignore[no-untyped-call]
 
+    @rpc
+    def stop(self) -> None:
+        super().stop()
+
 
 rerun_scene_wiring = RerunSceneWiringModule.blueprint
-
