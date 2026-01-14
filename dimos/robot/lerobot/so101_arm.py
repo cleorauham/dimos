@@ -1,4 +1,4 @@
-# Copyright 2025 Dimensional Inc.
+# Copyright 2025-2026 Dimensional Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,12 +15,12 @@
 import asyncio
 
 # Import LCM message types
-from dimos_lcm.sensor_msgs import CameraInfo # type: ignore[import-untyped]
+from dimos_lcm.sensor_msgs import CameraInfo  # type: ignore[import-untyped]
 
 from dimos import core
-from dimos.hardware.so101_arm import SO101Arm
 from dimos.hardware.camera.realsense import RealSenseModule
 from dimos.hardware.camera.zed import ZEDModule
+from dimos.hardware.so101_arm import SO101Arm
 from dimos.manipulation.visual_servoing.manipulation_module import ManipulationModule
 from dimos.msgs.sensor_msgs import Image
 from dimos.protocol import pubsub
@@ -36,7 +36,11 @@ logger = setup_logger("dimos.robot.lerobot.so101_arm")
 class SO101ArmRobot(Robot):
     """SO101 Arm robot with RGB camera and manipulation capabilities."""
 
-    def __init__(self, robot_capabilities: list[RobotCapability] | None = None, realsense_id: str | None = None) -> None:
+    def __init__(
+        self,
+        robot_capabilities: list[RobotCapability] | None = None,
+        realsense_id: str | None = None,
+    ) -> None:
         super().__init__()
         self.dimos = None
         self.camera = None
@@ -95,7 +99,7 @@ class SO101ArmRobot(Robot):
             ManipulationModule,
             arm="so101",
             arm_module=SO101Arm,
-            ee_to_camera_6dof = [0.0246, 0.0407, -0.0670, 1.57553, -1.18879, -1.57516]
+            ee_to_camera_6dof=[0.0246, 0.0407, -0.0670, 1.57553, -1.18879, -1.57516],
         )
 
         # Connect modules

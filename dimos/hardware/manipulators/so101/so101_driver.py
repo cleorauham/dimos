@@ -29,6 +29,7 @@ from .so101_wrapper import SO101SDKWrapper
 
 logger = logging.getLogger(__name__)
 
+
 class SO101Driver(BaseManipulatorDriver):
     """SO101 driver using component-based architecture.
 
@@ -151,7 +152,7 @@ class SO101Driver(BaseManipulatorDriver):
             if command.type == "position":
                 self._position_target = None
                 self._last_velocity_time = 0.0
-            
+
             # For standard position commands, base class calls set_joint_positions,
             # which defaults to use_ptp=True (safe blocking interpolation).
             super()._process_command(command)

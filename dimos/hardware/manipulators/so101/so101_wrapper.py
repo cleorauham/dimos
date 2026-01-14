@@ -12,26 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
 import time
-import json
-import numpy as np
 from typing import Any
+
 from lerobot.motors import Motor, MotorCalibration, MotorNormMode
 from lerobot.motors.feetech import FeetechMotorsBus, OperatingMode
-from ..base.sdk_interface import BaseManipulatorSDK, ManipulatorInfo
-from .lerobot_kinematics import LerobotKinematics
+import numpy as np
 from scipy.spatial.transform import Rotation as R
 
+from ..base.sdk_interface import BaseManipulatorSDK, ManipulatorInfo
+from .lerobot_kinematics import LerobotKinematics
+
+
 class SO101SDKWrapper(BaseManipulatorSDK):
-    
     def __init__(
-            self,
-            port: str = "/dev/ttyUSB0",
-            urdf_path: str = "dimos/hardware/manipulators/so101/urdf/so101_new_calib.urdf",
-            ee_link_name: str = "gripper_frame_link",
-            calibration_path: str = "dimos/hardware/manipulators/so101/calibration/so101_arm.json",
-        ):
+        self,
+        port: str = "/dev/ttyUSB0",
+        urdf_path: str = "dimos/hardware/manipulators/so101/urdf/so101_new_calib.urdf",
+        ee_link_name: str = "gripper_frame_link",
+        calibration_path: str = "dimos/hardware/manipulators/so101/calibration/so101_arm.json",
+    ):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.dof = 5  # SO101 is always 5-DOF
         self._connected = False
@@ -83,7 +85,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         except Exception as e:
             self.logger.warning(f"Failed to initialize kinematics: {e}")
             self.kinematics = None
-    
+
     # ============= Connection Management =============
 
     def _load_calibration(self, calibration_path: str = "") -> dict[str, MotorCalibration]:
@@ -138,7 +140,9 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         """
         try:
             port = config.get("port", "/dev/ttyUSB0")
-            calibration_path = config.get("calibration_path", "dimos/hardware/so101_utils/calibration/so101_arm.json")
+            calibration_path = config.get(
+                "calibration_path", "dimos/hardware/so101_utils/calibration/so101_arm.json"
+            )
             self.logger.info("Connecting to SO-101 arm on port %s", port)
 
             norm_mode_body = MotorNormMode.DEGREES
@@ -182,7 +186,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
 
     def is_connected(self) -> bool:
         return self._connected
-        
+
     # ============= Joint State Query =============
 
     def get_joint_positions(self, degree: bool = False) -> list[float]:
@@ -211,7 +215,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
                 return [0.0] * len(self.motor_names)
 
             values = self.bus.sync_read("Present_Velocity")
-            vel_deg = np.array([values[name] for name in self.motor_names], dtype=float)            
+            vel_deg = np.array([values[name] for name in self.motor_names], dtype=float)
             return np.radians(vel_deg).tolist()
         except Exception as e:
             self.logger.debug(f"Error when reading Present_Velocity: {e}")
@@ -226,8 +230,10 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         return [0.0] * len(self.motor_names)
 
     # ============= Joint Motion Control =============
-    
-    def move_joint_ptp(self, q_target: list[float], velocity: float = 1.0, duration: float | None = None) -> None:
+
+    def move_joint_ptp(
+        self, q_target: list[float], velocity: float = 1.0, duration: float | None = None
+    ) -> None:
         """
         Joint-space PTP interpolation.
 
@@ -320,14 +326,16 @@ class SO101SDKWrapper(BaseManipulatorSDK):
                     # Check if reached target (within tolerance)
                     current = self.get_joint_positions()
                     tolerance = 0.05  # radians
-                    if all(abs(current[i] - positions[i]) < tolerance for i in range(len(self.motor_names))):
+                    if all(
+                        abs(current[i] - positions[i]) < tolerance
+                        for i in range(len(self.motor_names))
+                    ):
                         break
                 except Exception:
                     pass  # Continue waiting
                 time.sleep(0.01)
 
         return result
-
 
     def set_joint_velocities(self, velocities: list[float]) -> bool:
         """Set joint velocity targets.
@@ -369,7 +377,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         # SO101 emergency stop
         try:
             self.emergency_stop()
-        except Exception as e:
+        except Exception:
             curr_pos = self.get_joint_positions()
             self.set_joint_positions(curr_pos)
         return True
@@ -398,7 +406,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             self.bus.disable_torque()
             self._enabled = False
             return True
-        
+
     def are_servos_enabled(self) -> bool:
         """Check if servos are enabled.
 
@@ -416,13 +424,13 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         """
         if not self.bus:
             return {
-            "state": 2,  # Error if can't get status
-            "mode": 0,
-            "error_code": 999,
-            "warn_code": 0,
-            "is_moving": False,
-            "cmd_num": 0,
-        }
+                "state": 2,  # Error if can't get status
+                "mode": 0,
+                "error_code": 999,
+                "warn_code": 0,
+                "is_moving": False,
+                "cmd_num": 0,
+            }
 
         # Default state mapping
         state = 0  # idle
@@ -431,7 +439,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
 
         error_code = self.get_error_code()
         state = 2 if error_code != 0 else 0
-        
+
         return {
             "state": state,
             "mode": mode,
@@ -450,7 +458,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         """
         if not self.bus:
             return 0
-        
+
         try:
             err_codes = {k: int(v) for k, v in self.bus.sync_read("Status").items()}
         except Exception:
@@ -521,7 +529,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             vendor="LeRobot",
             model="SO101",
             dof=self.dof,
-            firmware_version=None, # Lerobot does not expose firmware version
+            firmware_version=None,  # Lerobot does not expose firmware version
             serial_number=None,  # Lerobot does not expose serial number
         )
 
@@ -583,10 +591,10 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         """
         if not self.bus:
             return None
-        
+
         raw_pos = float(self.bus.read("Present_Position", self.gripper_name))
         return max(0.0, min(0.1, raw_pos * 0.001))
-    
+
     def get_cartesian_position(self) -> dict[str, float] | None:
         """Get current end-effector pose.
 
@@ -639,7 +647,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             [pose["x"], pose["y"], pose["z"]],
             dtype=float,
         )
-        
+
         # Convert RPY to Quaternion (wxyz)
         r = R.from_euler("xyz", [pose["roll"], pose["pitch"], pose["yaw"]], degrees=False)
         quat_xyzw = r.as_quat()
@@ -677,4 +685,3 @@ class SO101SDKWrapper(BaseManipulatorSDK):
                 time.sleep(0.01)
 
         return True
-        
