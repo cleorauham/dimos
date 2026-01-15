@@ -57,14 +57,6 @@ class EvalGeneratorConfig(ModuleConfig):
 class EvalRunnerConfig(ModuleConfig):
     """Configuration for the EvalRunner module."""
 
-    # Model to evaluate
-    model: str = Model.GPT_4O.value
-    provider: Provider = Provider.OPENAI
-
-    # Evaluation settings
-    match_mode: MatchMode = MatchMode.EXACT
-    temperature: float = 0.0  # Use deterministic outputs for evaluation
-
     # Output settings
     output_dir: Path = field(default_factory=lambda: Path("./eval_results"))
     save_results: bool = True

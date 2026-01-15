@@ -192,11 +192,15 @@ class EvalRunner(Module):
 
     Example:
         ```python
-        from dimos.agents.evals import EvalRunner, MatchMode
+        from dimos.agents.evals import EvalRunner, ModelSpec, MatchMode
 
-        runner = EvalRunner(model="gpt-4o", match_mode=MatchMode.EXACT)
-        summary = runner.run_from_file("evals/evals_20240101_120000.json")
-        print(f"Pass rate: {summary.pass_rate:.2%}")
+        runner = EvalRunner()
+        summary = runner.evaluate(
+            "evals/evals_20240101_120000.json",
+            models=[ModelSpec(model="gpt-4o", provider="openai")],
+            match_mode=MatchMode.EXACT,
+        )
+        print(f"Pass rate: {summary.get_ranking('pass_rate'):.2%}")
         ```
     """
 
@@ -205,19 +209,33 @@ class EvalRunner(Module):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._llm: BaseChatModel | None = None
+        self._llm_cache: dict[tuple[str, str], BaseChatModel] = {}
         self._judge_llm: BaseChatModel | None = None
 
-    @property
-    def llm(self) -> BaseChatModel:
-        """Lazily initialize the LLM being evaluated."""
-        if self._llm is None:
-            self._llm = init_chat_model(
-                model_provider=self.config.provider.value,
-                model=self.config.model,
-                temperature=self.config.temperature,
+    def _get_llm(
+        self,
+        model: str,
+        provider: str,
+        temperature: float = 0.0,
+    ) -> BaseChatModel:
+        """Get or create an LLM instance.
+
+        Args:
+            model: Model name.
+            provider: Provider name.
+            temperature: Temperature for sampling.
+
+        Returns:
+            BaseChatModel instance.
+        """
+        cache_key = (model, provider)
+        if cache_key not in self._llm_cache:
+            self._llm_cache[cache_key] = init_chat_model(
+                model_provider=provider,
+                model=model,
+                temperature=temperature,
             )
-        return self._llm
+        return self._llm_cache[cache_key]
 
     @property
     def judge_llm(self) -> BaseChatModel:
@@ -233,37 +251,13 @@ class EvalRunner(Module):
     def run_from_file(
         self,
         eval_file: str | Path,
-        tools: ToolSchemaList | None = None,
-    ) -> EvalRunSummary:
-        """Run evaluations from a file.
-
-        Args:
-            eval_file: Path to JSON or JSONL file with evals.
-            tools: Optional tool definitions. If not provided, uses tools from file.
-
-        Returns:
-            Summary of evaluation results.
-        """
-        eval_file = Path(eval_file)
-
-        if eval_file.suffix == ".jsonl":
-            evals = self._load_jsonl(eval_file)
-        elif eval_file.suffix == ".json":
-            evals, file_tools = self._load_json(eval_file)
-            if tools is None:
-                tools = file_tools
-        else:
-            raise ValueError(f"Unsupported file format: {eval_file.suffix}")
-
-        return self.run_evals(evals, tools)
-
-    def compare_models(
-        self,
-        eval_file: str | Path,
         models: list[ModelSpec],
         tools: ToolSchemaList | None = None,
     ) -> ModelComparisonResult:
-        """Compare multiple models on the same eval dataset.
+        """Run evaluations from a file for one or more models.
+
+        This is the primary interface for running evals. It loads evals from a file
+        and evaluates one or more models against them using exact matching.
 
         Args:
             eval_file: Path to JSON or JSONL file with evals.
@@ -276,15 +270,45 @@ class EvalRunner(Module):
         Example:
             ```python
             from dimos.agents.evals import EvalRunner, ModelSpec
+            from dimos.agents.spec import Model, Provider
 
             runner = EvalRunner()
-            result = runner.compare_models(
+            result = runner.run_from_file(
                 "evals/evals_20240101.json",
-                models=[
-                    ModelSpec(model="gpt-4o", provider="openai"),
-                    ModelSpec(model="gpt-4o-mini", provider="openai"),
-                    ModelSpec(model="claude-3-5-sonnet-latest", provider="anthropic"),
-                ],
+                models=[ModelSpec(model=Model.GPT_4O.value, provider=Provider.OPENAI)],
+            )
+            print(result.get_ranking("pass_rate"))
+            ```
+        """
+        return self.evaluate(eval_file, models, tools=tools)
+
+    def evaluate(
+        self,
+        eval_file: str | Path,
+        models: list[ModelSpec],
+        match_mode: MatchMode = MatchMode.EXACT,
+        tools: ToolSchemaList | None = None,
+    ) -> ModelComparisonResult:
+        """Evaluate one or more models on a dataset.
+
+        Args:
+            eval_file: Path to JSON or JSONL file with evals.
+            models: List of model specifications to evaluate.
+            match_mode: How to compare tool calls. Defaults to MatchMode.EXACT.
+            tools: Optional tool definitions. If not provided, uses tools from file.
+
+        Returns:
+            Comparison result with summaries for each model (even for single model).
+
+        Example:
+            ```python
+            from dimos.agents.evals import EvalRunner, ModelSpec, MatchMode
+
+            runner = EvalRunner()
+            result = runner.evaluate(
+                "evals/evals_20240101.json",
+                models=[ModelSpec(model="gpt-4o", provider="openai")],
+                match_mode=MatchMode.EXACT,
             )
             print(result.get_ranking("pass_rate"))
             ```
@@ -311,12 +335,12 @@ class EvalRunner(Module):
 
         for model_spec in models:
             logger.info(f"Evaluating model: {model_spec.provider}/{model_spec.model}")
-            summary = self._run_evals_with_model(evals, tools, model_spec)
+            summary = self._run_evals_with_model(evals, tools, model_spec, match_mode)
             comparison.summaries.append(summary)
 
         # Save comparison results
         if self.config.save_results:
-            self._save_comparison_results(comparison)
+            self._save_results(comparison)
 
         return comparison
 
@@ -325,6 +349,7 @@ class EvalRunner(Module):
         evals: list[dict[str, Any]],
         tools: ToolSchemaList | None,
         model_spec: ModelSpec,
+        match_mode: MatchMode,
     ) -> EvalRunSummary:
         """Run evals with a specific model.
 
@@ -332,16 +357,13 @@ class EvalRunner(Module):
             evals: List of eval examples.
             tools: Tool definitions.
             model_spec: Model specification to use.
+            match_mode: How to compare tool calls.
 
         Returns:
             Summary of evaluation results.
         """
-        # Create a new LLM for this model
-        llm = init_chat_model(
-            model_provider=model_spec.provider,
-            model=model_spec.model,
-            temperature=model_spec.temperature,
-        )
+        # Get or create LLM for this model
+        llm = self._get_llm(model_spec.model, model_spec.provider, model_spec.temperature)
 
         summary = EvalRunSummary(
             model=model_spec.model,
@@ -355,7 +377,9 @@ class EvalRunner(Module):
             eval_tools = tools or eval_item.get("tools", [])
 
             try:
-                result = self._run_single_eval_with_llm(eval_id, messages, eval_tools, llm)
+                result = self._run_single_eval_with_llm(
+                    eval_id, messages, eval_tools, llm, match_mode
+                )
                 summary.results.append(result)
 
                 if result.error:
@@ -405,6 +429,7 @@ class EvalRunner(Module):
         messages: list[dict[str, Any]],
         tools: ToolSchemaList,
         llm: BaseChatModel,
+        match_mode: MatchMode,
     ) -> EvalResult:
         """Run a single evaluation with a specific LLM.
 
@@ -413,6 +438,7 @@ class EvalRunner(Module):
             messages: The conversation messages.
             tools: Available tool definitions.
             llm: The LLM to use for this eval.
+            match_mode: How to compare tool calls.
 
         Returns:
             Result of the evaluation.
@@ -472,7 +498,7 @@ class EvalRunner(Module):
 
         # Compare tool calls
         tool_call_results = self._compare_tool_calls(
-            expected_tool_calls, actual_tool_calls
+            expected_tool_calls, actual_tool_calls, match_mode
         )
 
         # Determine if passed based on match mode
@@ -488,177 +514,19 @@ class EvalRunner(Module):
             latency_ms=latency_ms,
         )
 
-    def run_evals(
-        self,
-        evals: list[dict[str, Any]],
-        tools: ToolSchemaList | None = None,
-    ) -> EvalRunSummary:
-        """Run evaluations on a list of eval examples.
-
-        Args:
-            evals: List of eval examples in OpenAI format.
-            tools: Tool definitions for the model.
-
-        Returns:
-            Summary of evaluation results.
-        """
-        summary = EvalRunSummary(
-            model=self.config.model,
-            provider=self.config.provider.value,
-        )
-        summary.total_evals = len(evals)
-
-        for i, eval_item in enumerate(evals):
-            eval_id = f"eval_{i}"
-            messages = eval_item.get("messages", [])
-            eval_tools = tools or eval_item.get("tools", [])
-
-            try:
-                result = self._run_single_eval(eval_id, messages, eval_tools)
-                summary.results.append(result)
-
-                if result.error:
-                    summary.errors += 1
-                elif result.passed:
-                    summary.passed += 1
-                else:
-                    summary.failed += 1
-
-                # Aggregate metrics
-                summary.total_expected_calls += len(result.expected_tool_calls)
-                summary.total_actual_calls += len(result.actual_tool_calls)
-                summary.total_latency_ms += result.latency_ms
-
-                for tc_result in result.tool_call_results:
-                    if tc_result.name_match:
-                        summary.correct_tool_names += 1
-                    if tc_result.args_match:
-                        summary.correct_tool_args += 1
-                    if tc_result.is_match:
-                        summary.exact_matches += 1
-
-            except Exception as e:
-                logger.error(f"Error running eval {eval_id}: {e}")
-                summary.errors += 1
-                summary.results.append(
-                    EvalResult(
-                        eval_id=eval_id,
-                        user_query="",
-                        expected_tool_calls=[],
-                        actual_tool_calls=[],
-                        tool_call_results=[],
-                        passed=False,
-                        error=str(e),
-                    )
-                )
-
-        # Calculate average latency
-        if summary.total_evals > 0:
-            summary.avg_latency_ms = summary.total_latency_ms / summary.total_evals
-
-        # Save results if configured
-        if self.config.save_results:
-            self._save_results(summary)
-
-        return summary
-
-    def _run_single_eval(
-        self,
-        eval_id: str,
-        messages: list[dict[str, Any]],
-        tools: ToolSchemaList,
-    ) -> EvalResult:
-        """Run a single evaluation example.
-
-        Args:
-            eval_id: Identifier for this eval.
-            messages: The conversation messages.
-            tools: Available tool definitions.
-
-        Returns:
-            Result of the evaluation.
-        """
-        # Extract user query and expected tool calls from messages
-        user_query = ""
-        expected_tool_calls: list[dict[str, Any]] = []
-
-        for msg in messages:
-            role = msg.get("role", "")
-            if role == "user":
-                user_query = msg.get("content", "")
-            elif role == "assistant":
-                tool_calls = msg.get("tool_calls", [])
-                for tc in tool_calls:
-                    func = tc.get("function", {})
-                    expected_tool_calls.append({
-                        "name": func.get("name", ""),
-                        "arguments": json.loads(func.get("arguments", "{}")),
-                    })
-
-        if not user_query:
-            return EvalResult(
-                eval_id=eval_id,
-                user_query="",
-                expected_tool_calls=expected_tool_calls,
-                actual_tool_calls=[],
-                tool_call_results=[],
-                passed=False,
-                error="No user query found in eval",
-            )
-
-        # Build messages for LLM
-        llm_messages = []
-        for msg in messages:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "system":
-                llm_messages.append(SystemMessage(content=content))
-            elif role == "user":
-                llm_messages.append(HumanMessage(content=content))
-                break  # Only include up to the first user message for single-turn
-
-        # Bind tools and invoke
-        start_time = datetime.now()
-        llm_with_tools = self.llm.bind_tools(tools)
-        response: AIMessage = llm_with_tools.invoke(llm_messages)
-        latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-
-        # Extract actual tool calls
-        actual_tool_calls: list[dict[str, Any]] = []
-        for tc in response.tool_calls:
-            actual_tool_calls.append({
-                "name": tc.get("name", ""),
-                "arguments": tc.get("args", {}),
-            })
-
-        # Compare tool calls
-        tool_call_results = self._compare_tool_calls(
-            expected_tool_calls, actual_tool_calls
-        )
-
-        # Determine if passed based on match mode
-        passed = self._determine_pass(tool_call_results)
-
-        return EvalResult(
-            eval_id=eval_id,
-            user_query=user_query,
-            expected_tool_calls=expected_tool_calls,
-            actual_tool_calls=actual_tool_calls,
-            tool_call_results=tool_call_results,
-            passed=passed,
-            latency_ms=latency_ms,
-        )
 
     def _compare_tool_calls(
         self,
         expected: list[dict[str, Any]],
         actual: list[dict[str, Any]],
+        match_mode: MatchMode = MatchMode.EXACT,
     ) -> list[ToolCallResult]:
         """Compare expected and actual tool calls.
 
         Args:
             expected: Expected tool calls.
             actual: Actual tool calls from model.
+            match_mode: How to compare tool calls.
 
         Returns:
             List of comparison results.
@@ -678,7 +546,7 @@ class EvalRunner(Module):
                 name_match = exp_name == act_name
                 args_match = self._compare_arguments(exp_args, act_args)
 
-                if self.config.match_mode == MatchMode.SEMANTIC:
+                if match_mode == MatchMode.SEMANTIC:
                     is_match = self._semantic_match(exp, act)
                 else:  # EXACT
                     is_match = name_match and args_match
@@ -820,54 +688,11 @@ Respond with ONLY "YES" if they are semantically equivalent, or "NO" if they are
         tools = data.get("metadata", {}).get("tools")
         return evals, tools
 
-    def _save_results(self, summary: EvalRunSummary) -> Path:
-        """Save evaluation results to file.
-
-        Args:
-            summary: Evaluation summary to save.
-
-        Returns:
-            Path to saved file.
-        """
-        self.config.output_dir.mkdir(parents=True, exist_ok=True)
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"eval_results_{timestamp}.json"
-        filepath = self.config.output_dir / filename
-
-        output = {
-            "metadata": {
-                "evaluated_at": datetime.now().isoformat(),
-                "model": self.config.model,
-                "provider": self.config.provider.value,
-                "match_mode": self.config.match_mode.value,
-            },
-            "summary": summary.to_dict(),
-            "results": [
-                {
-                    "eval_id": r.eval_id,
-                    "user_query": r.user_query,
-                    "expected_tool_calls": r.expected_tool_calls,
-                    "actual_tool_calls": r.actual_tool_calls,
-                    "passed": r.passed,
-                    "error": r.error,
-                    "latency_ms": r.latency_ms,
-                }
-                for r in summary.results
-            ],
-        }
-
-        with open(filepath, "w") as f:
-            json.dump(output, f, indent=2)
-
-        logger.info(f"Saved eval results to {filepath}")
-        return filepath
-
-    def _save_comparison_results(self, comparison: ModelComparisonResult) -> Path:
+    def _save_results(self, results: ModelComparisonResult) -> Path:
         """Save model comparison results to file.
 
         Args:
-            comparison: Comparison result to save.
+            results: Results to save.
 
         Returns:
             Path to saved file.
@@ -875,15 +700,15 @@ Respond with ONLY "YES" if they are semantically equivalent, or "NO" if they are
         self.config.output_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"model_comparison_{timestamp}.json"
+        filename = f"results_{timestamp}.json"
         filepath = self.config.output_dir / filename
 
-        output = comparison.to_dict()
+        output = results.to_dict()
 
         with open(filepath, "w") as f:
             json.dump(output, f, indent=2)
 
-        logger.info(f"Saved model comparison results to {filepath}")
+        logger.info(f"Saved results to {filepath}")
         return filepath
 
     def start(self) -> None:
