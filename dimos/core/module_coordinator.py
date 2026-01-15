@@ -28,6 +28,7 @@ class ModuleCoordinator(Resource):
     _n: int | None = None
     _memory_limit: str = "auto"
     _deployed_modules: dict[type[Module], Module] = {}
+    _global_config: GlobalConfig
 
     def __init__(
         self,
@@ -35,6 +36,7 @@ class ModuleCoordinator(Resource):
         global_config: GlobalConfig | None = None,
     ) -> None:
         cfg = global_config or GlobalConfig()
+        self._global_config = cfg
         self._n = n if n is not None else cfg.n_dask_workers
         self._memory_limit = cfg.memory_limit
 
@@ -63,10 +65,25 @@ class ModuleCoordinator(Resource):
         return self._deployed_modules.get(module)  # type: ignore[return-value]
 
     def loop(self) -> None:
+        recorder = None
+        if getattr(self._global_config, "telemetry_enabled", False):
+            try:
+                from dimos.utils.telemetry_recorder import TelemetryRecorder
+
+                recorder = TelemetryRecorder(self._global_config)
+                recorder.start()
+            except Exception:
+                # Telemetry must never take down the run.
+                pass
         try:
             while True:
                 time.sleep(0.1)
         except KeyboardInterrupt:
             return
         finally:
+            try:
+                if recorder is not None:
+                    recorder.stop()
+            except Exception:
+                pass
             self.stop()

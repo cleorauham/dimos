@@ -31,6 +31,7 @@ from dimos.mapping.pointclouds.occupancy import (
 from dimos.msgs.nav_msgs import OccupancyGrid
 from dimos.msgs.sensor_msgs import PointCloud2
 from dimos.utils.logging_config import setup_logger
+from dimos.utils.metrics import publish_metric
 
 logger = setup_logger()
 
@@ -105,6 +106,10 @@ class CostMapper(Module):
                     rr.log("metrics/costmap/calc_ms", rr.Scalars(calc_time_ms))
                     latency_ms = (time.monotonic() - rx_monotonic) * 1000
                     rr.log("metrics/costmap/latency_ms", rr.Scalars(latency_ms))
+
+                    # Also publish metrics to LCM for run-scoped telemetry capture.
+                    publish_metric("costmap/calc_ms", calc_time_ms)
+                    publish_metric("costmap/latency_ms", latency_ms)
                 except Exception as e:
                     logger.warning(f"Rerun logging error: {e}")
 

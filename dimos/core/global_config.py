@@ -49,6 +49,12 @@ class GlobalConfig(BaseSettings):
     planner_strategy: NavigationStrategy = "simple"
     planner_robot_speed: float | None = None
 
+    # Telemetry logging (run-scoped CSVs under logs/; started by ModuleCoordinator.loop()).
+    telemetry_enabled: bool = False
+    telemetry_rate_hz: float = 2.0
+    telemetry_run_dir: str | None = None
+    telemetry_lcm_window_s: float = 5.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

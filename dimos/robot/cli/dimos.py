@@ -12,13 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime, timezone
 from enum import Enum
 import inspect
+import io
+import os
+from pathlib import Path
 import sys
+import threading
 from typing import Any, Optional, get_args, get_origin
 
 import typer
 
+from dimos.constants import DIMOS_LOG_DIR
 from dimos.core.blueprints import autoconnect
 from dimos.core.global_config import GlobalConfig
 from dimos.protocol import pubsub
@@ -32,6 +38,57 @@ main = typer.Typer(
     help="Dimensional CLI",
     no_args_is_help=True,
 )
+
+_console_tee_lock = threading.Lock()
+
+
+class _TeeTextIO(io.TextIOBase):
+    """Write-through tee for text streams (stdout/stderr)."""
+
+    def __init__(self, *streams: io.TextIOBase) -> None:
+        super().__init__()
+        self._streams = streams
+
+    def write(self, s: str) -> int:  # type: ignore[override]
+        with _console_tee_lock:
+            for st in self._streams:
+                try:
+                    st.write(s)
+                except Exception:
+                    pass
+            for st in self._streams:
+                try:
+                    st.flush()
+                except Exception:
+                    pass
+        return len(s)
+
+    def flush(self) -> None:  # type: ignore[override]
+        with _console_tee_lock:
+            for st in self._streams:
+                try:
+                    st.flush()
+                except Exception:
+                    pass
+
+    def isatty(self) -> bool:  # type: ignore[override]
+        # Preserve tty behavior for downstream libs that detect TTY.
+        try:
+            return self._streams[0].isatty()
+        except Exception:
+            return False
+
+
+def _ensure_run_dir(provided: str | None) -> Path:
+    if provided:
+        p = Path(provided)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    pid = os.getpid()
+    p = DIMOS_LOG_DIR / "runs" / f"{ts}_{pid}"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 def create_dynamic_callback():  # type: ignore[no-untyped-def]
@@ -107,11 +164,56 @@ def run(
     extra_modules: list[str] = typer.Option(  # type: ignore[valid-type]
         [], "--extra-module", help="Extra modules to add to the blueprint"
     ),
+    telemetry: bool | None = typer.Option(
+        None,
+        "--telemetry/--no-telemetry",
+        help="Enable run-scoped telemetry logging (CSV + JSONL) under logs/runs/<run_id>/",
+    ),
+    telemetry_rate_hz: float | None = typer.Option(
+        None,
+        "--telemetry-rate-hz",
+        help="Telemetry sampling rate (Hz) when --telemetry is enabled.",
+    ),
+    telemetry_run_dir: str | None = typer.Option(
+        None,
+        "--telemetry-run-dir",
+        help="Override telemetry output dir for this run (default: logs/runs/<run_id>/).",
+    ),
 ) -> None:
     """Start a robot blueprint"""
     setup_exception_handler()
 
     cli_config_overrides: dict[str, Any] = ctx.obj
+    if telemetry is not None:
+        cli_config_overrides["telemetry_enabled"] = telemetry
+    if telemetry_rate_hz is not None:
+        cli_config_overrides["telemetry_rate_hz"] = telemetry_rate_hz
+    if telemetry_run_dir is not None:
+        cli_config_overrides["telemetry_run_dir"] = telemetry_run_dir
+
+    telemetry_enabled = bool(cli_config_overrides.get("telemetry_enabled", False))
+
+    # When telemetry is enabled, also set common debug env vars and tee stdout/stderr to disk.
+    tee_file: io.TextIOWrapper | None = None
+    orig_stdout = sys.stdout
+    orig_stderr = sys.stderr
+    if telemetry_enabled:
+        run_dir = _ensure_run_dir(cli_config_overrides.get("telemetry_run_dir"))
+        cli_config_overrides["telemetry_run_dir"] = str(run_dir)
+
+        # Requested: set these automatically when running with --telemetry.
+        os.environ["DIMOS_LOG_LEVEL"] = "DEBUG"
+        os.environ["RERUN_SAVE"] = "1"
+
+        try:
+            tee_path = run_dir / "console_output.log"
+            tee_file = open(tee_path, "a", buffering=1, encoding="utf-8")
+            sys.stdout = _TeeTextIO(orig_stdout, tee_file)
+            sys.stderr = _TeeTextIO(orig_stderr, tee_file)
+            print(f"[telemetry] console output -> {tee_path}")
+        except Exception:
+            tee_file = None
+
     pubsub.lcm.autoconf()  # type: ignore[attr-defined]
     blueprint = get_blueprint_by_name(robot_type.value)
 
@@ -119,8 +221,20 @@ def run(
         loaded_modules = [get_module_by_name(mod_name) for mod_name in extra_modules]  # type: ignore[attr-defined]
         blueprint = autoconnect(blueprint, *loaded_modules)
 
-    dimos = blueprint.build(cli_config_overrides=cli_config_overrides)
-    dimos.loop()
+    try:
+        dimos = blueprint.build(cli_config_overrides=cli_config_overrides)
+        dimos.loop()
+    finally:
+        # Restore stdout/stderr and close tee file.
+        if telemetry_enabled:
+            sys.stdout = orig_stdout
+            sys.stderr = orig_stderr
+            try:
+                if tee_file is not None:
+                    tee_file.flush()
+                    tee_file.close()
+            except Exception:
+                pass
 
 
 @main.command()

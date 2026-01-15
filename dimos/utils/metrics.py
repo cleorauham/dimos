@@ -24,6 +24,25 @@ from dimos.core import LCMTransport, Transport
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+_metric_transports: dict[str, Transport[Float32]] = {}
+
+
+def publish_metric(name: str, value: float) -> None:
+    """Publish a numeric metric on LCM under `/metrics/<name>` as Float32.
+
+    Notes:
+    - `name` should NOT start with a leading slash.
+    - This is intended for lightweight time-series capture (e.g., to CSV) during runs.
+    """
+    metric_name = name.lstrip("/")
+    t = _metric_transports.get(metric_name)
+    if t is None:
+        t = LCMTransport(f"/metrics/{metric_name}", Float32)
+        _metric_transports[metric_name] = t
+    msg = Float32()
+    msg.data = float(value)
+    t.publish(msg)
+
 
 def timed(
     transport: Callable[[F], Transport[Float32]] | Transport[Float32] | None = None,

@@ -32,6 +32,7 @@ from dimos.msgs.sensor_msgs import PointCloud2
 from dimos.robot.unitree_webrtc.type.lidar import LidarMessage
 from dimos.utils.decorators import simple_mcache
 from dimos.utils.logging_config import setup_logger
+from dimos.utils.metrics import publish_metric
 from dimos.utils.reactive import backpressure
 
 logger = setup_logger()
@@ -179,10 +180,17 @@ class VoxelGridMapper(Module):
         rr.log("metrics/voxel_map/transport_ms", rr.Scalars(publish_ms))
         rr.log("metrics/voxel_map/voxel_count", rr.Scalars(float(len(pc))))
 
+        # Also publish metrics to LCM for run-scoped telemetry capture.
+        publish_metric("voxel_map/publish_ms", total_ms)
+        publish_metric("voxel_map/extract_ms", extract_ms)
+        publish_metric("voxel_map/transport_ms", publish_ms)
+        publish_metric("voxel_map/voxel_count", float(len(pc)))
+
         # Log pipeline latency (time from frame receipt to publish complete)
         if rx_monotonic is not None:
             latency_ms = (time.monotonic() - rx_monotonic) * 1000
             rr.log("metrics/voxel_map/latency_ms", rr.Scalars(latency_ms))
+            publish_metric("voxel_map/latency_ms", latency_ms)
 
     def size(self) -> int:
         return self._voxel_hashmap.size()  # type: ignore[no-any-return]
