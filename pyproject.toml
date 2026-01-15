@@ -185,6 +185,11 @@ manipulation = [
     # piper arm
     "piper-sdk",
 
+    # lerobot so101 arm
+    "lerobot",
+    "lerobot[feetech]",
+    "lerobot[manipulation]",
+
     # Visualization (Optional)
     "kaleido>=0.2.1",
     "plotly>=5.9.0",

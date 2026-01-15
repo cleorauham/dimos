@@ -14,6 +14,7 @@
 
 import json
 import logging
+import threading
 import time
 from typing import Any
 
@@ -38,6 +39,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         self.dof = 5  # SO101 is always 5-DOF
         self._connected = False
         self._enabled = False
+        self._lock = threading.Lock()
 
         self.port = port
         self.urdf_path = urdf_path
@@ -114,18 +116,19 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         self.logger.info("Configuring motors (OperatingMode + PID gains)")
 
         # Disable torque while tweaking settings
-        with self.bus.torque_disabled():
-            # Let LeRobot configure registers (limits, accel, etc.)
-            self.bus.configure_motors()
+        with self._lock:
+            with self.bus.torque_disabled():
+                # Let LeRobot configure registers (limits, accel, etc.)
+                self.bus.configure_motors()
 
-            for motor in self.bus.motors:
-                # Position control for all motors
-                self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
+                for motor in self.bus.motors:
+                    # Position control for all motors
+                    self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
 
-                # PID gains – tuned for smoother motion
-                self.bus.write("P_Coefficient", motor, 16)
-                self.bus.write("I_Coefficient", motor, 0)
-                self.bus.write("D_Coefficient", motor, 32)
+                    # PID gains – tuned for smoother motion
+                    self.bus.write("P_Coefficient", motor, 16)
+                    self.bus.write("I_Coefficient", motor, 0)
+                    self.bus.write("D_Coefficient", motor, 32)
 
         self.logger.info("Motor configuration complete")
 
@@ -180,7 +183,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
     def disconnect(self) -> None:
         """Disconnect from the arm."""
         if self.bus:
-            self.bus.disconnect()
+            with self._lock:
+                self.bus.disconnect()
             self.logger.info("SO-101 bus disconnected")
             self._connected = False
 
@@ -199,7 +203,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         if not self.bus:
             return [0.0] * len(self.motor_names)
 
-        values = self.bus.sync_read("Present_Position")
+        with self._lock:
+            values = self.bus.sync_read("Present_Position")
         q_deg_raw = np.array([values[name] for name in self.motor_names], dtype=float)
         q_deg = q_deg_raw - self.joint_offsets_deg
         return q_deg.tolist() if degree else np.radians(q_deg).tolist()
@@ -214,7 +219,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             if not self.bus:
                 return [0.0] * len(self.motor_names)
 
-            values = self.bus.sync_read("Present_Velocity")
+            with self._lock:
+                values = self.bus.sync_read("Present_Velocity")
             vel_deg = np.array([values[name] for name in self.motor_names], dtype=float)
             return np.radians(vel_deg).tolist()
         except Exception as e:
@@ -257,7 +263,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         if max_delta < 1e-6:
             q_deg = np.degrees(q_target)
             cmd = {name: float(q_deg[i]) for i, name in enumerate(self.motor_names)}
-            self.bus.sync_write("Goal_Position", cmd)
+            with self._lock:
+                self.bus.sync_write("Goal_Position", cmd)
             return
 
         if duration is None:
@@ -279,7 +286,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             q_interp = q_start + alpha * dq
             q_deg = np.degrees(q_interp)
             cmd = {name: float(q_deg[j]) for j, name in enumerate(self.motor_names)}
-            self.bus.sync_write("Goal_Position", cmd)
+            with self._lock:
+                self.bus.sync_write("Goal_Position", cmd)
             time.sleep(dt)
 
     def set_joint_positions(
@@ -314,7 +322,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             q_target = np.asarray(positions, dtype=float)
             q_deg = np.degrees(q_target)
             cmd = {name: float(q_deg[i]) for i, name in enumerate(self.motor_names)}
-            self.bus.sync_write("Goal_Position", cmd)
+            with self._lock:
+                self.bus.sync_write("Goal_Position", cmd)
             result = True
 
         if wait and result:
@@ -390,7 +399,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             True if servos enabled
         """
         if self.bus:
-            self.bus.enable_torque()
+            with self._lock:
+                self.bus.enable_torque()
             self._enabled = True
             return True
         else:
@@ -403,7 +413,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             True if servos disabled
         """
         if self.bus:
-            self.bus.disable_torque()
+            with self._lock:
+                self.bus.disable_torque()
             self._enabled = False
             return True
 
@@ -460,7 +471,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             return 0
 
         try:
-            err_codes = {k: int(v) for k, v in self.bus.sync_read("Status").items()}
+            with self._lock:
+                err_codes = {k: int(v) for k, v in self.bus.sync_read("Status").items()}
         except Exception:
             self.logger.exception("sync_read(Status) failed")
             return 0
@@ -579,7 +591,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         # Map 0–0.1 m → 0–100 normalized range
         val = (position / 0.1) * 100.0
         val = max(0.0, min(100.0, val))
-        self.bus.write("Goal_Position", self.gripper_name, val)
+        with self._lock:
+            self.bus.write("Goal_Position", self.gripper_name, val)
         return True
 
     def get_gripper_position(self) -> float | None:
@@ -592,7 +605,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         if not self.bus:
             return None
 
-        raw_pos = float(self.bus.read("Present_Position", self.gripper_name))
+        with self._lock:
+            raw_pos = float(self.bus.read("Present_Position", self.gripper_name))
         return max(0.0, min(0.1, raw_pos * 0.001))
 
     def get_cartesian_position(self) -> dict[str, float] | None:

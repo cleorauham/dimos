@@ -74,6 +74,11 @@ class SO101Driver(BaseManipulatorDriver):
             StandardStatusComponent(sdk),
         ]
 
+        # # Optional: Add gripper component if configured
+        # if config.get('has_gripper', False):
+        #     from dimos.hardware.manipulators.base.components import StandardGripperComponent
+        #     components.append(StandardGripperComponent(sdk))
+
         # Remove any kwargs that would conflict with explicit arguments
         kwargs.pop("sdk", None)
         kwargs.pop("components", None)
