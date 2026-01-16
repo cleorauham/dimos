@@ -58,8 +58,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             "wrist_roll",
         ]
         self.gripper_name = "gripper"
-        # Joint angle offsets in degrees (motor frame → robot frame)
-        # Measured offsets when the arm is mechanically at zero.
+        # Joint angle offsets in degrees
+        # Measured angles when the arm is supposed to be mechanically at zero.
         self.joint_offsets_deg = np.array(
             [0, 0.26373626, 2.59340659, 0.65934066, 0.21978022], dtype=float
         )
@@ -72,6 +72,9 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             "wrist_roll": 5,
             "gripper": 6,
         }
+
+        self.min_speed = 0.2
+        self.max_speed = 1.0
 
         # Initialize kinematics
         try:
@@ -147,6 +150,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             calibration_path = config.get(
                 "calibration_path", "dimos/hardware/manipulators/so101/calibration/so101_arm.json"
             )
+            self.control_rate = config.get("control_rate", 50)
+            self.control_dt = 1.0 / self.control_rate
             self.logger.info("Connecting to SO-101 arm on port %s", port)
 
             norm_mode_body = MotorNormMode.DEGREES
@@ -234,6 +239,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         Returns:
             Joint efforts in Nm (0-indexed)
         """
+        # Not possible with Feetech motors so returning zeros
         return [0.0] * len(self.motor_names)
 
     # ============= Joint Motion Control =============
@@ -259,7 +265,6 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         q_start = np.array(self.get_joint_positions(degree=False))
         dq = q_target - q_start
         max_delta = float(np.max(np.abs(dq)))
-        dt = 0.02  # 50 Hz
 
         if max_delta < 1e-6:
             q_deg = np.degrees(q_target)
@@ -270,17 +275,15 @@ class SO101SDKWrapper(BaseManipulatorSDK):
 
         if duration is None:
             # Derive from velocity: 0..1 → 0.2..1.0 rad/s (tunable)
-            min_speed = 0.2
-            max_speed = 1.0
-            joint_speed = min_speed + (max_speed - min_speed) * velocity
+            joint_speed = self.min_speed + (self.max_speed - self.min_speed) * velocity
             if joint_speed < 1e-3:
-                joint_speed = min_speed
+                joint_speed = self.min_speed
 
             duration = max_delta / joint_speed
-            if duration < dt:
-                duration = dt
+            if duration < self.control_dt:
+                duration = self.control_dt
 
-        steps = max(int(duration / dt), 1)
+        steps = max(int(duration / self.control_dt), 1)
 
         for i in range(1, steps + 1):
             alpha = i / steps
@@ -289,7 +292,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             cmd = {name: float(q_deg[j]) for j, name in enumerate(self.motor_names)}
             with self._lock:
                 self.bus.sync_write("Goal_Position", cmd)
-            time.sleep(dt)
+            time.sleep(self.control_dt)
 
     def set_joint_positions(
         self,
