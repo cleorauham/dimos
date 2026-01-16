@@ -45,18 +45,20 @@ class SO101Driver(BaseManipulatorDriver):
             **kwargs: Arguments for Module initialization.
                 Driver configuration can be passed via 'config' keyword arg:
                 - port: USB port id (e.g., '/dev/ttyUSB0')
+                - has_gripper: Whether gripper is attached
                 - calibration_path: Path of SO101 calibration file
                 - enable_on_start: Whether to enable servos on start
-                - has_gripper: Whether gripper is attached (Should always be True)
         """
         config: dict[str, Any] = kwargs.pop("config", {})
 
         # Extract driver-specific params that might be passed directly
         driver_params = [
             "port",
+            "has_gripper",
             "calibration_path",
             "enable_on_start",
-            "has_gripper",
+            "control_rate",
+            "monitor_rate",
         ]
         for param in driver_params:
             if param in kwargs:
@@ -74,7 +76,7 @@ class SO101Driver(BaseManipulatorDriver):
             StandardStatusComponent(sdk),
         ]
 
-        # # Optional: Add gripper component if configured
+        # Optional: Add gripper component if configured
         # if config.get('has_gripper', False):
         #     from dimos.hardware.manipulators.base.components import StandardGripperComponent
         #     components.append(StandardGripperComponent(sdk))
@@ -140,13 +142,11 @@ class SO101Driver(BaseManipulatorDriver):
             for i in range(min(len(velocities), len(self._position_target))):
                 self._position_target[i] += velocities[i] * dt
 
-            # Send integrated position command using fast path (use_ptp=False)
+            # Send integrated position command
             success = self.sdk.set_joint_positions(
                 self._position_target,
-                velocity=1.0,  # Ignored for fast path but good practice
-                acceleration=1.0,
                 wait=False,
-                use_ptp=False,  # Bypass blocking interpolation for high-freq control
+                use_ptp=False,
             )
 
             if success:
@@ -158,6 +158,82 @@ class SO101Driver(BaseManipulatorDriver):
                 self._position_target = None
                 self._last_velocity_time = 0.0
 
-            # For standard position commands, base class calls set_joint_positions,
-            # which defaults to use_ptp=True (safe blocking interpolation).
+            # Use base implementation for other command types
             super()._process_command(command)
+
+
+# Blueprint configuration for the driver
+def get_blueprint() -> dict[str, Any]:
+    """Get the blueprint configuration for the SO101 driver.
+
+    Returns:
+        Dictionary with blueprint configuration
+    """
+    return {
+        "name": "SO101Driver",
+        "class": SO101Driver,
+        "config": {
+            "port": "/dev/ttyUSB0",  # Default USB port
+            "has_gripper": True,  # SO101 usually has gripper
+            "calibration_path": None,  # Path to calibration file
+            "enable_on_start": True,  # Enable servos on startup
+            "control_rate": 100,  # Hz - control loop + joint feedback
+            "monitor_rate": 10,  # Hz - robot state monitoring
+        },
+        "inputs": {
+            "joint_position_command": "JointCommand",
+            "joint_velocity_command": "JointCommand",
+        },
+        "outputs": {
+            "joint_state": "JointState",
+            "robot_state": "RobotState",
+        },
+        "rpc_methods": [
+            # Motion control
+            "move_joint",
+            "move_joint_velocity",
+            "move_joint_effort",
+            "stop_motion",
+            "get_joint_state",
+            "get_joint_limits",
+            "get_velocity_limits",
+            "set_velocity_scale",
+            "set_acceleration_scale",
+            "move_cartesian",
+            "get_cartesian_state",
+            "execute_trajectory",
+            "stop_trajectory",
+            # Servo control
+            "enable_servo",
+            "disable_servo",
+            "toggle_servo",
+            "get_servo_state",
+            "emergency_stop",
+            "reset_emergency_stop",
+            "set_control_mode",
+            "get_control_mode",
+            "clear_errors",
+            "reset_fault",
+            "home_robot",
+            "brake_release",
+            "brake_engage",
+            # Status monitoring
+            "get_robot_state",
+            "get_system_info",
+            "get_capabilities",
+            "get_error_state",
+            "get_health_metrics",
+            "get_statistics",
+            "check_connection",
+            "get_force_torque",
+            "zero_force_torque",
+            "get_digital_inputs",
+            "set_digital_outputs",
+            "get_analog_inputs",
+            "get_gripper_state",
+        ],
+    }
+
+
+# Expose blueprint for declarative composition (compatible with dimos framework)
+so101_driver = SO101Driver.blueprint

@@ -306,8 +306,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             velocity: Max velocity fraction (0-1)
             _acceleration: [UNUSED] Kept for interface compatibility
             wait: If True, block until motion completes
-            use_ptp: If True, use PTP interpolation (smoother but blocking).
-                     If False, send command directly (fast but requires external trajectory generation).
+            use_ptp: If True, use PTP interpolation.
+                     If False, send command directly (assumes trajectory generated externally).
 
         Returns:
             True if command accepted

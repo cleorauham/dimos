@@ -46,6 +46,10 @@ all_blueprints = {
     "piper-servo": "dimos.hardware.manipulators.piper.piper_blueprints:piper_servo",
     "piper-cartesian": "dimos.hardware.manipulators.piper.piper_blueprints:piper_cartesian",
     "piper-trajectory": "dimos.hardware.manipulators.piper.piper_blueprints:piper_trajectory",
+    # SO101 manipulator blueprints
+    "so101-servo": "dimos.hardware.manipulators.so101.so101_blueprints:so101_servo",
+    "so101-cartesian": "dimos.hardware.manipulators.so101.so101_blueprints:so101_cartesian",
+    "so101-trajectory": "dimos.hardware.manipulators.so101.so101_blueprints:so101_trajectory",
     # Demo blueprints
     "demo-camera": "dimos.hardware.sensors.camera.module:demo_camera",
     "demo-osm": "dimos.mapping.osm.demo_osm:demo_osm",
