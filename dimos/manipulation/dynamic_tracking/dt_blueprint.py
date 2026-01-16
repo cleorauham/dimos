@@ -21,13 +21,13 @@ with a RealSense camera, optionally with XArm6 manipulation.
 Usage:
     # ArUco tracking only:
     from dimos.manipulation.dynamic_tracking.blueprint import aruco_tracker_realsense
-    
+
     coordinator = aruco_tracker_realsense.build()
     coordinator.start_all_modules()
 
     # ArUco tracking + XArm6 manipulation:
     from dimos.manipulation.dynamic_tracking.blueprint import aruco_tracker_realsense_xarm6
-    
+
     coordinator = aruco_tracker_realsense_xarm6.build()
     coordinator.start_all_modules()
 
@@ -53,7 +53,6 @@ from dimos.msgs.geometry_msgs import Quaternion, Transform, Vector3
 from dimos.msgs.sensor_msgs import CameraInfo
 from dimos.msgs.sensor_msgs.Image import Image
 from dimos.robot.foxglove_bridge import foxglove_bridge
-
 
 # =============================================================================
 # ArUco Tracker with RealSense Camera
@@ -90,7 +89,7 @@ aruco_tracker_realsense = autoconnect(
         output_dir="aruco_output",
         processing_rate=1,
         max_loops=30,
-        move_robot_to_aruco= False,
+        move_robot_to_aruco=False,
     ),
     foxglove_bridge(),
 ).transports(
@@ -123,4 +122,3 @@ aruco_tracker_realsense_xarm6 = autoconnect(
 
 
 __all__ = ["aruco_tracker_realsense", "aruco_tracker_realsense_xarm6"]
-

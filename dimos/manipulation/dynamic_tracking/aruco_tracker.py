@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import time
 from dataclasses import dataclass
+import os
 from threading import Event, Thread
+import time
 from typing import Any
 
 import cv2
@@ -42,9 +42,6 @@ class ArucoTrackerConfig(ModuleConfig):
     processing_rate: float = 1  # Processing rate in Hz (how often to process latest image)
     max_loops: int = 5  # Maximum number of loops to process
     move_robot_to_aruco: bool = True  # Whether to move the robot to the ArUco marker
-
-
-
 
 
 class ArucoTracker(Module[ArucoTrackerConfig]):
@@ -96,13 +93,13 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
 
         # Create output directory if saving images
         if self.config.save_images:
-            os.makedirs(self.config.output_dir, exist_ok=True) 
+            os.makedirs(self.config.output_dir, exist_ok=True)
 
     @rpc
     def start(self) -> None:
         """Start the ArUco tracker by subscribing to camera streams."""
         super().start()
-        
+
         # Subscribe to camera info to get intrinsics
         self._disposables.add(self.camera_info.observable().subscribe(self._update_camera_info))
 
@@ -112,7 +109,9 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
         # Reset loop counter and start processing loop thread
         self._loop_count = 0
         self._stop_event.clear()
-        self._processing_thread = Thread(target=self._processing_loop, daemon=True, name="ArucoTracker-Processing")
+        self._processing_thread = Thread(
+            target=self._processing_loop, daemon=True, name="ArucoTracker-Processing"
+        )
         self._processing_thread.start()
 
     def _store_latest_image(self, image: Image) -> None:
@@ -125,8 +124,10 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
         if len(camera_info.K) == 9:
             fx, _, cx, _, fy, cy, _, _, _ = camera_info.K
             self._camera_matrix = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float32)
-            self._dist_coeffs = np.array(camera_info.D, dtype=np.float32) if camera_info.D else np.zeros(5)
-        
+            self._dist_coeffs = (
+                np.array(camera_info.D, dtype=np.float32) if camera_info.D else np.zeros(5)
+            )
+
     @rpc
     def set_ManipulationModule_get_ee_pose(self, rpc_call: RpcCall) -> None:
         """Wire get_ee_pose RPC from ManipulationModule."""
@@ -149,7 +150,6 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
             ts=time.time(),
         )
         self.tf.publish(robot_base_to_world_transform)
-
 
     def _processing_loop(self) -> None:
         """Processing loop that runs at the configured rate."""
@@ -185,7 +185,7 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
 
             except Exception as e:
                 print(f"Error in processing loop: {e}")
-        
+
         print(f"Processing loop completed after {self._loop_count} iterations")
         # Thread will exit naturally here - do NOT call self.stop() as it would try to join itself
 
@@ -223,10 +223,13 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
         filtered_corners: list[np.ndarray] = []
         filtered_rvecs: list[np.ndarray] = []
         filtered_tvecs: list[np.ndarray] = []
-        
+
         for i, marker_id in enumerate(ids.flatten()):
             # Skip if tracking specific marker and this isn't it
-            if self.config.target_marker_id is not None and marker_id != self.config.target_marker_id:
+            if (
+                self.config.target_marker_id is not None
+                and marker_id != self.config.target_marker_id
+            ):
                 continue
 
             # Collect filtered data for drawing
@@ -261,7 +264,6 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
             aruco_wrt_robot_base = self.tf.get("base_link", "aruco_0")
             print(f"aruco wrt robot base: {aruco_wrt_robot_base}")
             if aruco_wrt_robot_base is not None:
-
                 # Calculate reach pose: adding 150mm to the z-axis and setting orientation
                 # Position: aruco position + 150mm offset in z
                 reach_x = aruco_wrt_robot_base.translation.x
@@ -302,25 +304,32 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
                             self._loop_count = self.config.max_loops
                             break
                     else:
-                        print("move_to_pose RPC not available") 
+                        print("move_to_pose RPC not available")
 
         # Draw markers and save image (using filtered data)
         if transforms:
             filtered_ids_array = np.array(filtered_ids).reshape(-1, 1)
-            self._draw_markers(display_image, filtered_corners, filtered_ids_array, np.array(filtered_rvecs), np.array(filtered_tvecs), transforms, image.format.name)
-
+            self._draw_markers(
+                display_image,
+                filtered_corners,
+                filtered_ids_array,
+                np.array(filtered_rvecs),
+                np.array(filtered_tvecs),
+                transforms,
+                image.format.name,
+            )
 
     def _set_transforms(
         self, marker_id: int, tvec: np.ndarray, quat: np.ndarray, timestamp: float
     ) -> Transform | None:
         """Set transforms: aruco marker to camera, and base_link to ee_link (from RPC call).
-        
+
         Args:
             marker_id: ArUco marker ID
             tvec: Translation vector from marker detection
             quat: Quaternion rotation from marker detection [x, y, z, w]
             timestamp: Timestamp for the transforms
-            
+
         Returns:
             The ArUco marker transform, or None if creation failed
         """
@@ -332,10 +341,10 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
             child_frame_id=f"aruco_{marker_id}",
             ts=timestamp,
         )
-        
+
         # Publish ArUco marker transform
         self.tf.publish(aruco_transform)
-        
+
         # Publish base_link -> ee_link transform (from ManipulationModule)
         if self._get_ee_pose_rpc is not None:
             try:
@@ -346,7 +355,10 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
                     # Extract pose components [x, y, z, roll, pitch, yaw]
                     x, y, z, roll, pitch, yaw = ee_pose
                     # Convert Euler angles to quaternion
-                    from dimos.hardware.manipulators.base.utils.converters import euler_to_quaternion
+                    from dimos.hardware.manipulators.base.utils.converters import (
+                        euler_to_quaternion,
+                    )
+
                     qx, qy, qz, qw = euler_to_quaternion(roll, pitch, yaw)
                     # Create transform from base_link to ee_link
                     ee_transform = Transform(
@@ -358,7 +370,7 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
                     )
                     # Publish transform
                     self.tf.publish(ee_transform)
-                    
+
             except Exception as e:
                 print(f"Error getting EE pose from ManipulationModule: {e}")
         return aruco_transform
@@ -390,7 +402,7 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
 
         # Draw axes and text for each marker
         text_y_offset = 30
-        for i, (marker_id, transform) in enumerate(zip(ids.flatten(), transforms, strict=False)):
+        for i, (marker_id, _transform) in enumerate(zip(ids.flatten(), transforms, strict=False)):
             rvec = rvecs[i][0]
             tvec = tvecs[i][0]
 
@@ -432,7 +444,9 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
             save_image = display_image.copy()
             if image_format == "RGB":
                 save_image = cv2.cvtColor(save_image, cv2.COLOR_RGB2BGR)
-            filename = os.path.join(self.config.output_dir, f"aruco_detection_{self._image_counter:05d}.png")
+            filename = os.path.join(
+                self.config.output_dir, f"aruco_detection_{self._image_counter:05d}.png"
+            )
             cv2.imwrite(filename, save_image)
             print(f"Saved annotated image to: {filename}")
             self._image_counter += 1
@@ -442,11 +456,11 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
         """Stop the ArUco tracker."""
         # Signal processing thread to stop
         self._stop_event.set()
-        
+
         # Wait for processing thread to finish
         if self._processing_thread is not None and self._processing_thread.is_alive():
             self._processing_thread.join(timeout=2.0)
-        
+
         super().stop()
 
 
