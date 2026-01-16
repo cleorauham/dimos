@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 import uuid
 
 import numpy as np
+import numpy.typing as npt
 
 from dimos.protocol.pubsub.shm.ipc_factory import CpuShmChannel
 from dimos.protocol.pubsub.spec import PickleEncoderMixin, PubSub, PubSubEncoderMixin
@@ -103,7 +104,7 @@ class SharedMemoryPubSubBase(PubSub[str, Any]):
             self.last_local_payload: bytes | None = None
             self.suppress_counts: dict[bytes, int] = defaultdict(int)  # UUID bytes as key
             # Pre-allocated buffer to avoid allocation on every publish
-            self.publish_buffer: np.ndarray = np.zeros(self.shape, dtype=self.dtype)
+            self.publish_buffer: npt.NDArray[np.uint8] = np.zeros(self.shape, dtype=self.dtype)
 
     # ----- init / lifecycle -------------------------------------------------
 
