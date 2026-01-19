@@ -146,7 +146,7 @@ class SO101Driver(BaseManipulatorDriver):
             success = self.sdk.set_joint_positions(
                 self._position_target,
                 wait=False,
-                use_ptp=False,
+                use_ptp=False,  # type: ignore[call-arg]
             )
 
             if success:

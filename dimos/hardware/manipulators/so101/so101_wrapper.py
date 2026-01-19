@@ -18,10 +18,10 @@ import threading
 import time
 from typing import Any
 
-from lerobot.motors import Motor, MotorCalibration, MotorNormMode
-from lerobot.motors.feetech import FeetechMotorsBus, OperatingMode
+from lerobot.motors import Motor, MotorCalibration, MotorNormMode  # type: ignore[import-not-found]
+from lerobot.motors.feetech import FeetechMotorsBus, OperatingMode  # type: ignore[import-not-found]
 import numpy as np
-from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Rotation as R  # type: ignore[import-untyped]
 
 from ..base.sdk_interface import BaseManipulatorSDK, ManipulatorInfo
 from .lerobot_kinematics import LerobotKinematics
@@ -77,6 +77,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         self.max_speed = 1.0
 
         # Initialize kinematics
+        self.kinematics: LerobotKinematics | None = None
         try:
             self.kinematics = LerobotKinematics(
                 self.urdf_path,
@@ -90,7 +91,6 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             )
         except Exception as e:
             self.logger.warning(f"Failed to initialize kinematics: {e}")
-            self.kinematics = None
 
     # ============= Connection Management =============
 
@@ -213,7 +213,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             values = self.bus.sync_read("Present_Position")
         q_deg_raw = np.array([values[name] for name in self.motor_names], dtype=float)
         q_deg = q_deg_raw - self.joint_offsets_deg
-        return q_deg.tolist() if degree else np.radians(q_deg).tolist()
+        return q_deg.tolist() if degree else np.radians(q_deg).tolist()  # type: ignore[no-any-return]
 
     def get_joint_velocities(self) -> list[float]:
         """Get current joint velocities.
@@ -228,7 +228,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             with self._lock:
                 values = self.bus.sync_read("Present_Velocity")
             vel_deg = np.array([values[name] for name in self.motor_names], dtype=float)
-            return np.radians(vel_deg).tolist()
+            return np.radians(vel_deg).tolist() # type: ignore[no-any-return]
         except Exception as e:
             self.logger.debug(f"Error when reading Present_Velocity: {e}")
             return [0.0] * len(self.motor_names)
@@ -245,7 +245,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
     # ============= Joint Motion Control =============
 
     def move_joint_ptp(
-        self, q_target: list[float], velocity: float = 1.0, duration: float | None = None
+        self, positions: list[float], velocity: float = 1.0, duration: float | None = None
     ) -> None:
         """
         Joint-space PTP interpolation.
@@ -258,7 +258,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         if not self.bus:
             raise RuntimeError("Bus not connected.")
 
-        q_target = np.asarray(q_target, dtype=float)
+        q_target = np.asarray(positions, dtype=float)
         if q_target.shape[0] != len(self.motor_names):
             raise ValueError(f"Expected {len(self.motor_names)} joints, got {q_target.shape[0]}")
 
@@ -662,22 +662,16 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             return False
 
         curr_joint_angles = self.get_joint_positions(degree=True)
-        target_pos = np.array(
-            [pose["x"], pose["y"], pose["z"]],
-            dtype=float,
-        )
+        target_pos = [pose["x"], pose["y"], pose["z"]]
 
         # Convert RPY to Quaternion (wxyz)
         r = R.from_euler("xyz", [pose["roll"], pose["pitch"], pose["yaw"]], degrees=False)
         quat_xyzw = r.as_quat()
-        target_quat_wxyz = np.array(
-            [quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]],
-            dtype=float,
-        )
+        target_quat_wxyz = [quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]]
         try:
             q_target_kin_deg = self.kinematics.ik(curr_joint_angles, target_pos, target_quat_wxyz)
             q_target = np.radians(q_target_kin_deg)
-            self.set_joint_positions(q_target)
+            self.set_joint_positions(q_target.tolist())
         except ValueError as e:
             self.logger.error(f"Value Error Raised: {e}")
             return False

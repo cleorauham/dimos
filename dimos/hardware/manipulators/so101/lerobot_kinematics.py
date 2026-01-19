@@ -17,9 +17,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from lerobot.model.kinematics import RobotKinematics
+from lerobot.model.kinematics import RobotKinematics  # type: ignore[import-not-found]
 import numpy as np
-from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Rotation as R  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -85,7 +85,7 @@ class LerobotKinematics:
     # ------------------------------------------------------------------
     # Forward Kinematics
     # ------------------------------------------------------------------
-    def fk(self, q: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    def fk(self, q: list[float]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """
         Forward kinematics: joint vector -> (position, quaternion_wxyz).
 
@@ -118,9 +118,9 @@ class LerobotKinematics:
     # ------------------------------------------------------------------
     def ik(
         self,
-        q_init: NDArray[np.float64],
-        target_pos: NDArray[np.float64],
-        target_quat_wxyz: NDArray[np.float64],
+        q_init: list[float],
+        target_pos: list[float],
+        target_quat_wxyz: list[float],
         position_weight: float = 1.0,
         orientation_weight: float = 1.0,
     ) -> NDArray[np.float64]:
@@ -161,13 +161,13 @@ class LerobotKinematics:
         target_rot = R.from_quat(target_quat_xyzw)
 
         q = np.radians(q_init.copy())
+        q_deg = np.degrees(q)
 
         # Iterative IK using Jacobian
         step_size = 0.5  # Damping factor for stability
 
         for _ in range(self._max_iters):
-            q_deg = np.degrees(q)
-            current_pos, current_quat_wxyz = self.fk(q_deg)
+            current_pos, current_quat_wxyz = self.fk(q_deg.tolist())
 
             pos_error = target_pos - current_pos
             pos_error_norm = np.linalg.norm(pos_error)
@@ -210,7 +210,7 @@ class LerobotKinematics:
 
         # Safety check: verify the solution accuracy
         q_sol_deg = np.degrees(q)
-        final_pos, _ = self.fk(q_sol_deg)
+        final_pos, _ = self.fk(q_sol_deg.tolist())
         final_pos_error = np.linalg.norm(target_pos - final_pos)
 
         if final_pos_error > 0.1:  # 10cm threshold
@@ -220,12 +220,12 @@ class LerobotKinematics:
                 f"Target position: {target_pos}, Final position: {final_pos}"
             )
 
-        return q_sol_deg
+        return np.array(q_sol_deg, dtype=np.float64)
 
     # ------------------------------------------------------------------
     # Jacobian & velocity-level control
     # ------------------------------------------------------------------
-    def jacobian(self, q: NDArray[np.float64]) -> NDArray[np.float64]:
+    def jacobian(self, q: list[float]) -> NDArray[np.float64]:
         """
         Return the 6 x dof geometric Jacobian at configuration q.
 
@@ -247,8 +247,7 @@ class LerobotKinematics:
         if q.shape[0] != self.dof:
             raise ValueError(f"Expected {self.dof} DoF, got {q.shape[0]}")
         q_deg = np.degrees(q)
-
-        pos0, quat0_wxyz = self.fk(q_deg)
+        pos0, quat0_wxyz = self.fk(q_deg.tolist())
         quat0_xyzw = np.array([quat0_wxyz[1], quat0_wxyz[2], quat0_wxyz[3], quat0_wxyz[0]])
         rot0 = R.from_quat(quat0_xyzw)
         R0 = rot0.as_matrix()
@@ -260,7 +259,7 @@ class LerobotKinematics:
             q_pert_deg = q_deg.copy()
             q_pert_deg[i] += np.degrees(eps_rad)
 
-            pos1, quat1_wxyz = self.fk(q_pert_deg)
+            pos1, quat1_wxyz = self.fk(q_pert_deg.tolist())
             J[:3, i] = (pos1 - pos0) / eps_rad
 
             quat1_xyzw = np.array([quat1_wxyz[1], quat1_wxyz[2], quat1_wxyz[3], quat1_wxyz[0]])
