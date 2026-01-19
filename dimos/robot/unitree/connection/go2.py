@@ -146,7 +146,7 @@ class GO2Connection(Module, spec.Camera, spec.Pointcloud):
     cmd_vel: In[Twist]
     pointcloud: Out[PointCloud2]
     odom: Out[PoseStamped]
-    lidar: Out[LidarMessage]
+    lidar: Out[PointCloud2]
     color_image: Out[Image]
     camera_info: Out[CameraInfo]
 

@@ -32,8 +32,8 @@ from dimos.robot.unitree_webrtc.type.lidar import LidarMessage
 
 
 class Map(Module):
-    lidar: In[LidarMessage]
-    global_map: Out[LidarMessage]
+    lidar: In[PointCloud2]
+    global_map: Out[PointCloud2]
     global_costmap: Out[OccupancyGrid]
 
     _point_cloud_accumulator: PointCloudAccumulator

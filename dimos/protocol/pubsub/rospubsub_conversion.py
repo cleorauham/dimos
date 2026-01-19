@@ -135,57 +135,58 @@ def _copy_ros_to_lcm_recursive(ros_msg: Any, lcm_msg: Any) -> None:
         ros_msg: Source ROS message
         lcm_msg: Target LCM message (modified in place)
     """
-    # Get field names from ROS message
-    if hasattr(ros_msg, "get_fields_and_field_types"):
-        field_types = ros_msg.get_fields_and_field_types()
-        for ros_field_name in field_types:
-            # Map ROS field name to LCM field name
-            lcm_field_name = _ROS_TO_LCM_FIELD_MAP.get(ros_field_name, ros_field_name)
+    if not hasattr(ros_msg, "get_fields_and_field_types"):
+        raise TypeError(f"Expected ROS message, got {type(ros_msg).__name__}")
 
-            if not hasattr(lcm_msg, lcm_field_name):
-                continue
+    field_types = ros_msg.get_fields_and_field_types()
+    for ros_field_name in field_types:
+        # Map ROS field name to LCM field name
+        lcm_field_name = _ROS_TO_LCM_FIELD_MAP.get(ros_field_name, ros_field_name)
 
-            ros_value = getattr(ros_msg, ros_field_name)
-            lcm_value = getattr(lcm_msg, lcm_field_name)
+        if not hasattr(lcm_msg, lcm_field_name):
+            continue
 
-            # Handle nested messages
-            if hasattr(ros_value, "get_fields_and_field_types"):
-                _copy_ros_to_lcm_recursive(ros_value, lcm_value)
-            # Handle arrays of messages
-            elif isinstance(ros_value, (list, tuple)) and len(ros_value) > 0:
-                if hasattr(ros_value[0], "get_fields_and_field_types"):
-                    # Array of nested messages - create LCM instances
-                    lcm_array = []
-                    for ros_item in ros_value:
-                        # Get the LCM element type from the first lcm_value element if available
-                        # Otherwise try to derive from ros item
-                        if isinstance(lcm_value, list) and len(lcm_value) > 0:
-                            lcm_item = type(lcm_value[0])()
-                        else:
-                            # Try to create matching LCM type
-                            lcm_item = _create_lcm_instance_for_ros_msg(ros_item)
-                        _copy_ros_to_lcm_recursive(ros_item, lcm_item)
-                        lcm_array.append(lcm_item)
-                    setattr(lcm_msg, lcm_field_name, lcm_array)
-                else:
-                    # Array of primitives - direct copy
-                    setattr(lcm_msg, lcm_field_name, list(ros_value))
-            # Handle bytes/data fields
-            elif isinstance(ros_value, (bytes, bytearray)):
-                setattr(lcm_msg, lcm_field_name, bytes(ros_value))
-            # Handle array.array (ROS uses this for data fields)
-            elif hasattr(ros_value, "tobytes"):
-                setattr(lcm_msg, lcm_field_name, ros_value.tobytes())
+        ros_value = getattr(ros_msg, ros_field_name)
+        lcm_value = getattr(lcm_msg, lcm_field_name)
+
+        # Handle nested messages
+        if hasattr(ros_value, "get_fields_and_field_types"):
+            _copy_ros_to_lcm_recursive(ros_value, lcm_value)
+        # Handle arrays of messages
+        elif isinstance(ros_value, (list, tuple)) and len(ros_value) > 0:
+            if hasattr(ros_value[0], "get_fields_and_field_types"):
+                # Array of nested messages - create LCM instances
+                lcm_array = []
+                for ros_item in ros_value:
+                    # Get the LCM element type from the first lcm_value element if available
+                    # Otherwise try to derive from ros item
+                    if isinstance(lcm_value, list) and len(lcm_value) > 0:
+                        lcm_item = type(lcm_value[0])()
+                    else:
+                        # Try to create matching LCM type
+                        lcm_item = _create_lcm_instance_for_ros_msg(ros_item)
+                    _copy_ros_to_lcm_recursive(ros_item, lcm_item)
+                    lcm_array.append(lcm_item)
+                setattr(lcm_msg, lcm_field_name, lcm_array)
             else:
-                # Primitive type - direct copy
-                setattr(lcm_msg, lcm_field_name, ros_value)
+                # Array of primitives - direct copy
+                setattr(lcm_msg, lcm_field_name, list(ros_value))
+        # Handle bytes/data fields
+        elif isinstance(ros_value, (bytes, bytearray)):
+            setattr(lcm_msg, lcm_field_name, bytes(ros_value))
+        # Handle array.array (ROS uses this for data fields)
+        elif hasattr(ros_value, "tobytes"):
+            setattr(lcm_msg, lcm_field_name, ros_value.tobytes())
+        else:
+            # Primitive type - direct copy
+            setattr(lcm_msg, lcm_field_name, ros_value)
 
-            # Update length fields if present (LCM convention: field_name_length)
-            length_field = f"{lcm_field_name}_length"
-            if hasattr(lcm_msg, length_field):
-                value = getattr(lcm_msg, lcm_field_name)
-                if isinstance(value, (list, tuple, bytes, bytearray)):
-                    setattr(lcm_msg, length_field, len(value))
+        # Update length fields if present (LCM convention: field_name_length)
+        length_field = f"{lcm_field_name}_length"
+        if hasattr(lcm_msg, length_field):
+            value = getattr(lcm_msg, lcm_field_name)
+            if isinstance(value, (list, tuple, bytes, bytearray)):
+                setattr(lcm_msg, length_field, len(value))
 
 
 def _copy_lcm_to_ros_recursive(lcm_msg: Any, ros_msg: Any) -> None:
@@ -197,51 +198,52 @@ def _copy_lcm_to_ros_recursive(lcm_msg: Any, ros_msg: Any) -> None:
         lcm_msg: Source LCM message
         ros_msg: Target ROS message (modified in place)
     """
-    # Get field names from ROS message (source of truth for field structure)
-    if hasattr(ros_msg, "get_fields_and_field_types"):
-        field_types = ros_msg.get_fields_and_field_types()
-        for ros_field_name in field_types:
-            # Map ROS field name to LCM field name
-            lcm_field_name = _ROS_TO_LCM_FIELD_MAP.get(ros_field_name, ros_field_name)
+    if not hasattr(ros_msg, "get_fields_and_field_types"):
+        raise TypeError(f"Expected ROS message, got {type(ros_msg).__name__}")
 
-            if not hasattr(lcm_msg, lcm_field_name):
-                continue
+    field_types = ros_msg.get_fields_and_field_types()
+    for ros_field_name in field_types:
+        # Map ROS field name to LCM field name
+        lcm_field_name = _ROS_TO_LCM_FIELD_MAP.get(ros_field_name, ros_field_name)
 
-            lcm_value = getattr(lcm_msg, lcm_field_name)
-            ros_value = getattr(ros_msg, ros_field_name)
+        if not hasattr(lcm_msg, lcm_field_name):
+            continue
 
-            # Handle nested messages
-            if hasattr(ros_value, "get_fields_and_field_types"):
-                _copy_lcm_to_ros_recursive(lcm_value, ros_value)
-            # Handle arrays of messages
-            elif isinstance(lcm_value, (list, tuple)) and len(lcm_value) > 0:
-                if hasattr(lcm_value[0], "lcm_encode"):
-                    # Array of nested LCM messages
-                    ros_array = []
-                    for lcm_item in lcm_value:
-                        ros_item = _create_ros_instance_for_lcm_msg(
-                            lcm_item, field_types[ros_field_name]
-                        )
-                        _copy_lcm_to_ros_recursive(lcm_item, ros_item)
-                        ros_array.append(ros_item)
-                    setattr(ros_msg, ros_field_name, ros_array)
-                else:
-                    # Array of primitives - direct copy
-                    setattr(ros_msg, ros_field_name, list(lcm_value))
-            # Handle bytes/data fields
-            elif isinstance(lcm_value, (bytes, bytearray)):
-                # ROS data fields might expect array.array
-                if hasattr(ros_value, "frombytes"):
-                    import array
+        lcm_value = getattr(lcm_msg, lcm_field_name)
+        ros_value = getattr(ros_msg, ros_field_name)
 
-                    arr = array.array("B")
-                    arr.frombytes(lcm_value)
-                    setattr(ros_msg, ros_field_name, arr)
-                else:
-                    setattr(ros_msg, ros_field_name, bytes(lcm_value))
+        # Handle nested messages
+        if hasattr(ros_value, "get_fields_and_field_types"):
+            _copy_lcm_to_ros_recursive(lcm_value, ros_value)
+        # Handle arrays of messages
+        elif isinstance(lcm_value, (list, tuple)) and len(lcm_value) > 0:
+            if hasattr(lcm_value[0], "lcm_encode"):
+                # Array of nested LCM messages
+                ros_array = []
+                for lcm_item in lcm_value:
+                    ros_item = _create_ros_instance_for_lcm_msg(
+                        lcm_item, field_types[ros_field_name]
+                    )
+                    _copy_lcm_to_ros_recursive(lcm_item, ros_item)
+                    ros_array.append(ros_item)
+                setattr(ros_msg, ros_field_name, ros_array)
             else:
-                # Primitive type - direct copy
-                setattr(ros_msg, ros_field_name, lcm_value)
+                # Array of primitives - direct copy
+                setattr(ros_msg, ros_field_name, list(lcm_value))
+        # Handle bytes/data fields
+        elif isinstance(lcm_value, (bytes, bytearray)):
+            # ROS data fields might expect array.array
+            if hasattr(ros_value, "frombytes"):
+                import array
+
+                arr = array.array("B")
+                arr.frombytes(lcm_value)
+                setattr(ros_msg, ros_field_name, arr)
+            else:
+                setattr(ros_msg, ros_field_name, bytes(lcm_value))
+        else:
+            # Primitive type - direct copy
+            setattr(ros_msg, ros_field_name, lcm_value)
 
 
 def _create_lcm_instance_for_ros_msg(ros_msg: Any) -> Any:
