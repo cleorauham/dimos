@@ -332,7 +332,7 @@ class XArmBackend(ManipulatorBackend):
     def write_cartesian_position(
         self,
         pose: dict[str, float],
-        velocity: float = 1.0,
+        velocity: float = 0.2,
         wait: bool = False,
     ) -> bool:
         """Write end-effector pose (meters -> mm, radians -> degrees).

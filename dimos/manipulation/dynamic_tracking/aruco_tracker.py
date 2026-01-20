@@ -45,7 +45,13 @@ class ArucoTrackerConfig(ModuleConfig):
     rate: float = 1  # Rate in Hz - defines speed of execution (process loop then sleep)
     max_loops: int = 5  # Maximum number of loops to process
     move_robot_to_aruco: bool = True  # Whether to move the robot to the ArUco marker
+    move_robot_to_aruco_rotation: bool = (
+        False  # Whether to follow ArUco rotation (False = fixed orientation)
+    )
     safety_max_delta: float = 0.10  # Max allowed 3D distance (meters) between commands
+    safety_max_rot_delta: float = (
+        0.2  # Max allowed rotation delta (radians) per axis between commands
+    )
     hardware_id: str = "arm"  # Hardware ID for ControlOrchestrator EE pose lookup
     robot_connected: bool = True  # Whether robot is connected (False = use dummy EE transform)
 
@@ -88,8 +94,9 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
         self._get_ee_positions_rpc: RpcCall | None = None
         self._move_to_cartesian_pose_rpc: RpcCall | None = None
 
-        # Safety: track last commanded position for delta check
+        # Safety: track last commanded pose for delta check
         self._last_commanded_pos: tuple[float, float, float] | None = None
+        self._last_commanded_rot: tuple[float, float, float] | None = None
 
     @rpc
     def start(self) -> None:
@@ -162,22 +169,49 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
             ),
         )
 
-    def _check_safety_delta(self, x: float, y: float, z: float) -> bool:
-        """Check if the new position is within safety limits of the last commanded position."""
-        if self._last_commanded_pos is None:
-            return True
+    def _check_safety_delta(
+        self, x: float, y: float, z: float, roll: float, pitch: float, yaw: float
+    ) -> bool:
+        """Check if the new pose is within safety limits of the last commanded pose."""
+        # Check position delta
+        if self._last_commanded_pos is not None:
+            dx = x - self._last_commanded_pos[0]
+            dy = y - self._last_commanded_pos[1]
+            dz = z - self._last_commanded_pos[2]
+            pos_delta = (dx**2 + dy**2 + dz**2) ** 0.5
 
-        # Calculate 3D distance from last successful command
-        dx = x - self._last_commanded_pos[0]
-        dy = y - self._last_commanded_pos[1]
-        dz = z - self._last_commanded_pos[2]
-        delta = (dx**2 + dy**2 + dz**2) ** 0.5
+            if pos_delta > self.config.safety_max_delta:
+                logger.warning(
+                    f"Safety check failed: position delta {pos_delta:.3f}m exceeds limit {self.config.safety_max_delta:.3f}m"
+                )
+                return False
 
-        if delta > self.config.safety_max_delta:
-            logger.warning(
-                f"Safety check failed: delta {delta:.3f}m exceeds limit {self.config.safety_max_delta:.3f}m"
-            )
-            return False
+        # Check orientation delta
+        if self._last_commanded_rot is not None:
+            d_roll = abs(roll - self._last_commanded_rot[0])
+            d_pitch = abs(pitch - self._last_commanded_rot[1])
+            d_yaw = abs(yaw - self._last_commanded_rot[2])
+
+            # Handle wrap-around for roll (can go from π to -π)
+            if d_roll > 3.14159:
+                d_roll = 2 * 3.14159 - d_roll
+
+            if d_roll > self.config.safety_max_rot_delta:
+                logger.warning(
+                    f"Safety check failed: roll delta {d_roll:.3f}rad exceeds limit {self.config.safety_max_rot_delta:.3f}rad"
+                )
+                return False
+            if d_pitch > self.config.safety_max_rot_delta:
+                logger.warning(
+                    f"Safety check failed: pitch delta {d_pitch:.3f}rad exceeds limit {self.config.safety_max_rot_delta:.3f}rad"
+                )
+                return False
+            if d_yaw > self.config.safety_max_rot_delta:
+                logger.warning(
+                    f"Safety check failed: yaw delta {d_yaw:.3f}rad exceeds limit {self.config.safety_max_rot_delta:.3f}rad"
+                )
+                return False
+
         return True
 
     def _processing_loop(self) -> None:
@@ -261,12 +295,11 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
         if aruco_wrt_robot_base is not None:
             aruco_rpy = aruco_wrt_robot_base.rotation.to_euler()
             logger.debug(
-                f"ArUco wrt base_link - pos: ({aruco_wrt_robot_base.translation.x:.3f}, "
-                f"{aruco_wrt_robot_base.translation.y:.3f}, {aruco_wrt_robot_base.translation.z:.3f}), "
-                f"RPY: ({aruco_rpy.x:.3f}, {aruco_rpy.y:.3f}, {aruco_rpy.z:.3f})"
+                f"ArUco wrt base_link: x={aruco_wrt_robot_base.translation.x:.3f}, y={aruco_wrt_robot_base.translation.y:.3f}, z={aruco_wrt_robot_base.translation.z:.3f}, "
+                f"roll={aruco_rpy.x:.3f}, pitch={aruco_rpy.y:.3f}, yaw={aruco_rpy.z:.3f}"
             )
 
-        if aruco_wrt_robot_base is not None and self.config.move_robot_to_aruco:
+        if aruco_wrt_robot_base is not None:
             self._move_to_aruco(aruco_wrt_robot_base)
 
         # Draw markers on display image
@@ -282,28 +315,69 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
 
     def _move_to_aruco(self, aruco_wrt_robot_base: Transform) -> None:
         """Move the robot to the ArUco marker position with offset."""
-        # Calculate reach pose: position offset + orientation
+        import math
+
+        # Calculate reach pose: position offset
         reach_x = aruco_wrt_robot_base.translation.x - 0.05  # 5cm offset in x
         reach_y = aruco_wrt_robot_base.translation.y
         reach_z = aruco_wrt_robot_base.translation.z + 0.20  # 20cm offset in z
 
-        # Orientation: roll=-3.13, pitch=0, yaw=0 (in radians)
-        reach_roll = -3.13
-        reach_pitch = 0.0
-        reach_yaw = 0.0
+        # Always compute rotation values for logging
+        aruco_rpy = aruco_wrt_robot_base.rotation.to_euler()
+        aruco_roll = aruco_rpy.x
+        aruco_pitch = aruco_rpy.y
+        aruco_yaw = aruco_rpy.z
+
+        # Map ArUco orientation to robot EE orientation
+        # ArUco home: roll=0, pitch=0, yaw≈-π/2 -> Robot home: roll=π, pitch=0, yaw=0
+        # Robot roll = π + ArUco roll (wrap to ±π)
+        computed_roll = math.pi + aruco_roll
+        if computed_roll > math.pi:
+            computed_roll -= 2 * math.pi
+        elif computed_roll < -math.pi:
+            computed_roll += 2 * math.pi
+
+        # Robot pitch = ArUco pitch (clamp to ±π/2)
+        computed_pitch = max(-math.pi / 2, min(math.pi / 2, aruco_pitch))
+
+        # Robot yaw = ArUco yaw + π/2 (offset from -π/2 home, clamp to ±π/2)
+        computed_yaw = aruco_yaw + math.pi / 2
+        computed_yaw = max(-math.pi / 2, min(math.pi / 2, computed_yaw))
+
+        # Log computed rotation values
+        logger.debug(
+            f"Computed rotation: roll={computed_roll:.3f}, pitch={computed_pitch:.3f}, yaw={computed_yaw:.3f}"
+        )
+
+        # Use computed rotation or fixed default based on config
+        if self.config.move_robot_to_aruco_rotation:
+            reach_roll = computed_roll
+            reach_pitch = computed_pitch
+            reach_yaw = computed_yaw
+        else:
+            # Use fixed default orientation (robot home: roll=π, pitch=0, yaw=0)
+            reach_roll = math.pi
+            reach_pitch = 0.0
+            reach_yaw = 0.0
 
         logger.debug(
-            f"Computed reach pose: x={reach_x:.3f}, y={reach_y:.3f}, z={reach_z:.3f}, "
+            f"Reach pose: x={reach_x:.3f}, y={reach_y:.3f}, z={reach_z:.3f}, "
             f"roll={reach_roll:.3f}, pitch={reach_pitch:.3f}, yaw={reach_yaw:.3f}"
         )
 
         # Safety check: ensure delta is within limits
-        if not self._check_safety_delta(reach_x, reach_y, reach_z):
+        if not self._check_safety_delta(
+            reach_x, reach_y, reach_z, reach_roll, reach_pitch, reach_yaw
+        ):
             logger.warning("Skipping move command due to safety check failure")
             return
 
         if self._move_to_cartesian_pose_rpc is None:
             logger.warning("move_to_cartesian_pose RPC not available")
+            return
+
+        if not self.config.move_robot_to_aruco:
+            logger.info("move_robot_to_aruco is False, skipping move command")
             return
 
         try:
@@ -315,12 +389,15 @@ class ArucoTracker(Module[ArucoTrackerConfig]):
                 roll=reach_roll,
                 pitch=reach_pitch,
                 yaw=reach_yaw,
+                velocity=0.2,
+                wait=True,
             )
             if not success:
                 logger.warning("Failed to move to pose, stopping processing loop")
                 self._loop_count = self.config.max_loops
             else:
                 self._last_commanded_pos = (reach_x, reach_y, reach_z)
+                self._last_commanded_rot = (reach_roll, reach_pitch, reach_yaw)
                 logger.debug("Successfully commanded move to pose")
         except Exception as e:
             logger.error(f"Error calling move_to_cartesian_pose: {e}")

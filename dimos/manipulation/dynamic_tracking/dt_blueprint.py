@@ -102,6 +102,7 @@ aruco_tracker_realsense_xarm6 = (
             rate=15,
             max_loops=10000,
             move_robot_to_aruco=True,
+            move_robot_to_aruco_rotation=True,  # Whether to follow ArUco rotation (False = fixed orientation)
             robot_connected=True,
         ),
     )
