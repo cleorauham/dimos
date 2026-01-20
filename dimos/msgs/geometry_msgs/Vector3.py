@@ -42,7 +42,6 @@ class Vector3(LCMVector3):  # type: ignore[misc]
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
-    msg_name = "geometry_msgs.Vector3"
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize a 3D vector.
