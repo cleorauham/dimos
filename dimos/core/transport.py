@@ -227,6 +227,7 @@ class ROSTransport(PubSubTransport[DimosMsg]):
     def broadcast(self, _: Out[DimosMsg], msg: DimosMsg) -> None:
         if self._ros is None:
             self.start()
+            assert self._ros is not None  # for type narrowing
         self._ros.publish(self.topic, msg)
 
     def subscribe(
@@ -234,6 +235,7 @@ class ROSTransport(PubSubTransport[DimosMsg]):
     ) -> Callable[[], None]:
         if self._ros is None:
             self.start()
+            assert self._ros is not None  # for type narrowing
         return self._ros.subscribe(self.topic, lambda msg, topic: callback(msg))
 
     def start(self) -> None:
