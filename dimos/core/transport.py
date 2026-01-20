@@ -215,7 +215,6 @@ class JpegShmTransport(PubSubTransport[T]):
 
 
 class ROSTransport(PubSubTransport[DimosMsg]):
-    _started: bool = False
     _ros: DimosROS | None = None
 
     def __init__(self, topic: str, msg_type: type[DimosMsg], **kwargs: Any) -> None:
@@ -225,34 +224,27 @@ class ROSTransport(PubSubTransport[DimosMsg]):
     def __reduce__(self) -> tuple[Any, ...]:
         return (ROSTransport, (self.topic.topic, self.topic.msg_type))
 
-    def _ensure_started(self) -> DimosROS:
-        if self._ros is None:
-            self._ros = DimosROS(**self._kwargs)
-        if not self._started:
-            self._ros.start()
-            self._started = True
-        return self._ros
-
     def broadcast(self, _: Out[DimosMsg], msg: DimosMsg) -> None:
-        if not self._started or self._ros is None:
+        if self._ros is None:
             raise RuntimeError("ROSTransport not started, call start() first")
         self._ros.publish(self.topic, msg)
 
     def subscribe(
         self, callback: Callable[[DimosMsg], Any], selfstream: Stream[DimosMsg] | None = None
     ) -> Callable[[], None]:
-        if not self._started or self._ros is None:
+        if self._ros is None:
             raise RuntimeError("ROSTransport not started, call start() first")
         return self._ros.subscribe(self.topic, lambda msg, topic: callback(msg))
 
     def start(self) -> None:
-        self._ensure_started()
+        if self._ros is None:
+            self._ros = DimosROS(**self._kwargs)
+            self._ros.start()
 
     def stop(self) -> None:
         if self._ros is not None:
             self._ros.stop()
             self._ros = None
-            self._started = False
 
 
 class ZenohTransport(PubSubTransport[T]): ...
