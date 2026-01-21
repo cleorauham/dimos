@@ -60,13 +60,11 @@ class EmbeddingMemory(Module[Config]):
     def query_costmap(self, text: str) -> OccupancyGrid:
         costmap = self.get_costmap()
         # overlay costmap with embedding heat
-
         return costmap
 
     @rpc
     def start(self) -> None:
         # would be cool if this sharpness_barrier was somehow self-calibrating
-        # taking into account message processing frequency downstream
         #
         # we need a Governor system, sharpness_barrier frequency shouldn't
         # be a fixed float but an observable that adjusts based on downstream load
