@@ -20,18 +20,20 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from dimos.msgs.sensor_msgs import JointState
 
 
 class SimulationEngine(ABC):
     """Abstract base class for a simulator engine instance."""
 
-    def __init__(self, config_path: str | None, headless: bool) -> None:
+    def __init__(self, config_path: Path, headless: bool) -> None:
         self._config_path = config_path
         self._headless = headless
 
     @property
-    def config_path(self) -> str | None:
+    def config_path(self) -> Path:
         return self._config_path
 
     @property

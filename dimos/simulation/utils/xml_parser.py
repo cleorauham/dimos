@@ -126,13 +126,16 @@ def _mapping_for_joint(spec: _ActuatorSpec, model: mujoco.MjModel) -> JointMappi
 
 
 def _mapping_for_tendon(spec: _ActuatorSpec, model: mujoco.MjModel) -> JointMapping:
+    name = spec.name or spec.tendon
+    if not name:
+        raise ValueError("Tendon actuator is missing a name and tendon reference")
     tendon_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_TENDON, spec.tendon)
     if tendon_id < 0:
         raise ValueError(f"Unknown tendon '{spec.tendon}' in MuJoCo model")
     actuator_id = _find_actuator_id_for_tendon(model, tendon_id, spec.name)
     joint_ids = _tendon_joint_ids(model, tendon_id)
     return JointMapping(
-        name=spec.name or spec.tendon,
+        name=name,
         joint_id=None,
         actuator_id=actuator_id,
         qpos_adr=None,
