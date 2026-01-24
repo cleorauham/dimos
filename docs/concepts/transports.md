@@ -22,12 +22,48 @@ Quick view on performance of our transports
 
 ![Benchmark results](assets/pubsub_benchmark.png)
 
+
+# Abstraction Layers
+
+<details><summary>Pikchr</summary>
+
+```pikchr output=assets/abstraction_layers.svg fold
+color = white
+fill = none
+linewid = 0.5in
+boxwid = 1.0in
+boxht = 0.4in
+
+# Boxes with labels
+B: box "Blueprints" rad 10px
+arrow
+M: box "Modules" rad 5px
+arrow
+T: box "Transports" rad 5px
+arrow
+P: box "PubSub" rad 5px
+
+# Descriptions below
+text "robot configs" at B.s + (0.1, -0.2in)
+text "camera, nav" at M.s + (0, -0.2in)
+text "LCM, SHM, ROS" at T.s + (0, -0.2in)
+text "pub/sub API" at P.s + (0, -0.2in)
+```
+
+</details>
+
+These are the abstraction layers we'll go through one by one
+
+<!--Result:-->
+![output](assets/abstraction_layers.svg)
+
 # Using Transports with Blueprints
 
 See [Blueprints](blueprints.md) for more on blueprints API
 
 From [`unitree_go2_blueprints.py`](/dimos/robot/unitree_webrtc/unitree_go2_blueprints.py)
-Here is an example of rebinding some topics used for Unitree GO2 to `ROSTransport` (defined at [`transport.py`](/dimos/core/transport.py#L226)) from the default `LCMTransport`
+
+An example of rebinding some topics used for Unitree GO2 robot from the default `LCMTransport` to `ROSTransport` (defined at [`transport.py`](/dimos/core/transport.py#L226))
 
 This allows us to view the data with rviz2
 
@@ -49,7 +85,6 @@ ros = nav.transports(
     }
 )
 ```
-
 # Using Transports with Modules
 
 Every module stream can use a different transport. Set `.transport` on the stream before starting the module:
