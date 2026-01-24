@@ -1,29 +1,47 @@
-# Intro
+# Transports
 
-Transports enable communication between [modules](modules.md) across process boundaries and networks.
+Transports connect **module streams** across **process boundaries** and/or **networks**.
 
-Each line in this graph is a Transport (can be different protocols), each node is a Module:
+* **Module**: a running component (e.g., camera, mapping, nav).
+* **Stream**: a unidirectional flow of messages owned by a module (one broadcaster → many receivers).
+* **Topic**: the name/identifier used by a transport or pubsub backend.
+* **Message**: payload carried on a stream (often `dimos.msgs.*`, but can be bytes / images / pointclouds / etc.).
+
+Each edge in the graph is a **transported stream** (potentially different protocols). Each node is a **module**:
 
 ![go2_basic](assets/go2_basic.svg)
 
-Module transports are always unidirectional (they have a broadcaster and receiver side)
+## What the transport layer guarantees (and what it doesn’t)
 
-Implementation wise these are things like HTTP server, redis, ROS DDS etc. Generally for most deployments we use the same pubsub protocol, usually LCM or shared memory.
+Modules **don’t** know or care *how* data moves. They just:
 
-Modules internally don't know or care how their data is transported. They just emit messages and subscribe to messages. It is a job of a transport to reliably deliver those messages.
+* emit messages (broadcast)
+* subscribe to messages (receive)
 
-Messages can be anything a transport can transport, so binary data, images, pointclouds etc. Most of the time these are `dimos.msgs`
+A transport is responsible for the mechanics of delivery (IPC, sockets, Redis, ROS 2, etc.).
+
+**Important:** delivery semantics depend on the backend:
+
+* Some are **best-effort** (e.g., UDP multicast / LCM): loss can happen.
+* Some can be **reliable** (e.g., TCP-backed, Redis, some DDS configs) but may add latency/backpressure.
+
+So: treat the API as uniform, but pick a backend whose semantics match the task.
+
+---
 
 # Benchmarks
 
-Quick view on performance of our transports
+Quick view on performance of our pubsub backends:
 
-`python -m pytest -svm tool -k "not bytes" dimos/protocol/pubsub/benchmark/test_benchmark.py`
+```sh skip
+python -m pytest -svm tool -k "not bytes" dimos/protocol/pubsub/benchmark/test_benchmark.py
+```
 
 ![Benchmark results](assets/pubsub_benchmark.png)
 
+---
 
-# Abstraction Layers
+# Abstraction layers
 
 <details><summary>Pikchr</summary>
 
@@ -52,20 +70,22 @@ text "pub/sub API" at P.s + (0, -0.2in)
 
 </details>
 
-These are the abstraction layers we'll go through one by one
-
 <!--Result:-->
 ![output](assets/abstraction_layers.svg)
 
-# Using Transports with Blueprints
+![output](assets/abstraction_layers.svg)
 
-See [Blueprints](blueprints.md) for more on blueprints API
+We’ll go through these layers top-down.
 
-From [`unitree_go2_blueprints.py`](/dimos/robot/unitree_webrtc/unitree_go2_blueprints.py)
+---
 
-An example of rebinding some topics used for Unitree GO2 robot from the default `LCMTransport` to `ROSTransport` (defined at [`transport.py`](/dimos/core/transport.py#L226))
+# Using transports with blueprints
 
-This allows us to view the data with rviz2
+See [Blueprints](blueprints.md) for the blueprint API.
+
+From [`unitree_go2_blueprints.py`](/dimos/robot/unitree_webrtc/unitree_go2_blueprints.py).
+
+Example: rebind a few streams from the default `LCMTransport` to `ROSTransport` (defined at [`transport.py`](/dimos/core/transport.py#L226)) so you can visualize in **rviz2**.
 
 ```python skip
 nav = autoconnect(
@@ -85,9 +105,12 @@ ros = nav.transports(
     }
 )
 ```
-# Using Transports with Modules
 
-Every module stream can use a different transport. Set `.transport` on the stream before starting the module:
+---
+
+# Using transports with modules
+
+Each **stream** on a module can use a different transport. Set `.transport` on the stream **before starting** modules.
 
 ```python ansi=false
 import time
@@ -98,7 +121,6 @@ from dimos.hardware.sensors.camera.module import CameraModule
 from dimos.msgs.sensor_msgs import Image
 
 
-# Define a simple listener module
 class ImageListener(Module):
     image: In[Image]
 
@@ -108,37 +130,32 @@ class ImageListener(Module):
 
 
 if __name__ == "__main__":
-    # Start cluster and deploy modules to separate processes
+    # Start local cluster and deploy modules to separate processes
     dimos = start(2)
 
     camera = dimos.deploy(CameraModule, frequency=2.0)
     listener = dimos.deploy(ImageListener)
 
-    # Connect via shared memory transport (pSHMTransport uses pickle encoding)
+    # Choose a transport for the stream (example: LCM typed channel)
     camera.color_image.transport = LCMTransport("/camera/rgb", Image)
+
+    # Connect listener input to camera output
     listener.image.connect(camera.color_image)
 
-    # Or we can set manually, these are equivalent.
-    # Setting manually allows us to implement and run listener in a separate file
-    #
-    # listener.image.transport = LCMTransport("/camera/rgb", Image)
-
-    # Start both modules
     camera.start()
     listener.start()
 
     time.sleep(2)
-
     dimos.stop()
 ```
 
 <!--Result:-->
 ```
 Initialized dimos local cluster with 2 workers, memory limit: auto
-2026-01-24T07:44:39.770667Z [info     ] Deploying module.                                            [dimos/core/__init__.py] module=CameraModule
-2026-01-24T07:44:39.805460Z [info     ] Deployed module.                                             [dimos/core/__init__.py] module=CameraModule worker_id=0
-2026-01-24T07:44:39.819562Z [info     ] Deploying module.                                            [dimos/core/__init__.py] module=ImageListener
-2026-01-24T07:44:39.849461Z [info     ] Deployed module.                                             [dimos/core/__init__.py] module=ImageListener worker_id=1
+2026-01-24T13:17:50.190559Z [info     ] Deploying module.                                            [dimos/core/__init__.py] module=CameraModule
+2026-01-24T13:17:50.218466Z [info     ] Deployed module.                                             [dimos/core/__init__.py] module=CameraModule worker_id=1
+2026-01-24T13:17:50.229474Z [info     ] Deploying module.                                            [dimos/core/__init__.py] module=ImageListener
+2026-01-24T13:17:50.250199Z [info     ] Deployed module.                                             [dimos/core/__init__.py] module=ImageListener worker_id=0
 Received: (480, 640, 3)
 Received: (480, 640, 3)
 Received: (480, 640, 3)
@@ -146,52 +163,62 @@ Received: (480, 640, 3)
 
 See [Modules](modules.md) for more on module architecture.
 
+---
+
 # Inspecting LCM traffic (CLI)
 
-`lcmspy` shows topic frequency/bandwidth stats.
+`lcmspy` shows topic frequency/bandwidth stats:
 
 ![lcmspy](assets/lcmspy.png)
 
-`dimos topic echo /topic` listens on typed channels like `/topic#pkg.Msg` and decodes automatically.
+`dimos topic echo /topic` listens on typed channels like `/topic#pkg.Msg` and decodes automatically:
 
-```sh
+```sh skip
 Listening on /camera/rgb (inferring from typed LCM channels like '/camera/rgb#pkg.Msg')... (Ctrl+C to stop)
-Image(shape=(480, 640, 3), format=RGB, dtype=uint8, dev=cpu, ts=2026-01-24 20:28:59)
-Image(shape=(480, 640, 3), format=RGB, dtype=uint8, dev=cpu, ts=2026-01-24 20:28:59)
-Image(shape=(480, 640, 3), format=RGB, dtype=uint8, dev=cpu, ts=2026-01-24 20:28:59)
-Image(shape=(480, 640, 3), format=RGB, dtype=uint8, dev=cpu, ts=2026-01-24 20:28:59)
 Image(shape=(480, 640, 3), format=RGB, dtype=uint8, dev=cpu, ts=2026-01-24 20:28:59)
 ```
 
-# Theory
+---
 
-Transport is implemented by subclassing `Transport` at [`core/stream.py`](/dimos/core/stream.py#L83) and implementing `broadcast` and `subscribe` functions.
+# Implementing a transport
 
-Your init arguments to Transport can be anything you'd like - an IP address and port, a shared memory segment name, a file path, or a Redis channel,
+At the stream layer, a transport is implemented by subclassing `Transport` (see [`core/stream.py`](/dimos/core/stream.py#L83)) and implementing:
 
-The way you transfer and encode the data is an implementation detail left to you. You can specify which type of data you are able to transport on a type level.
+* `broadcast(...)`
+* `subscribe(...)`
 
-For example a video streaming HTTP transport probably only takes Image type, while a TCP channel takes bytes.
+Your `Transport.__init__` args can be anything meaningful for your backend:
 
-Your transport's `subscribe()` just needs to return the expected message type - we don't care how you transport, encode, or construct it.
+* `(ip, port)`
+* a shared-memory segment name
+* a filesystem path
+* a Redis channel
 
-If helpful, all our types provide `lcm_encode` and `lcm_decode` functions for (faster then pickle and language agnostic) binary encoding. for more info on this, check [lcm](/docs/concepts/lcm.md)
+Encoding is an implementation detail, but we encourage using LCM-compatible message types when possible.
 
-# PubSub Transports
+## Encoding helpers
 
-All our transports implement the `PubSub` interface - just `publish(topic, message)` and `subscribe(topic, callback)`:
+Many of our message types provide `lcm_encode` / `lcm_decode` for compact, language-agnostic binary encoding (often faster than pickle). For details, see [LCM](/docs/concepts/lcm.md).
 
-```python session=pubsub_demo ansi=false
+---
+
+# PubSub transports (practice)
+
+All our transport backends implement the `PubSub` interface:
+
+* `publish(topic, message)`
+* `subscribe(topic, callback) -> unsubscribe`
+
+```python
 from dimos.protocol.pubsub.spec import PubSub
-
-# The interface every transport must implement:
 import inspect
+
 print(inspect.getsource(PubSub.publish))
 print(inspect.getsource(PubSub.subscribe))
 ```
 
 <!--Result:-->
-```python
+```
     @abstractmethod
     def publish(self, topic: TopicT, message: MsgT) -> None:
         """Publish a message to a topic."""
@@ -205,15 +232,13 @@ print(inspect.getsource(PubSub.subscribe))
         ...
 ```
 
-Topic and message types are flexible - bytes, json, or our ROS-compatible [LCM](/docs/concepts/lcm.md) types. We also have pickle transports for any Python object.
+Topic/message types are flexible: bytes, JSON, or our ROS-compatible [LCM](/docs/concepts/lcm.md) types. We also have pickle-based transports for arbitrary Python objects.
 
-You can use pubsub directly (though normally you'd use module/blueprint APIs):
+## LCM (UDP multicast)
 
-## LCM
+LCM is UDP multicast. It’s very fast on a robot LAN, but it’s **best-effort** (packets can drop).
 
-LCM is UDP multicast, will work through fast reliable networks on a robot.
-
-```python session=lcm_demo ansi=false
+```python
 from dimos.protocol.pubsub.lcmpubsub import LCM, Topic
 from dimos.msgs.geometry_msgs import Vector3
 
@@ -221,7 +246,7 @@ lcm = LCM(autoconf=True)
 lcm.start()
 
 received = []
-topic = Topic(topic="/robot/velocity", Vector3)
+topic = Topic("/robot/velocity", Vector3)
 
 lcm.subscribe(topic, lambda msg, t: received.append(msg))
 lcm.publish(topic, Vector3(1.0, 0.0, 0.5))
@@ -238,11 +263,11 @@ lcm.stop()
 Received velocity: x=1.0, y=0.0, z=0.5
 ```
 
-## Shared Memory
+## Shared memory (IPC)
 
-Shared Memory is highest performance, works only on the same machine as IPC
+Shared memory is highest performance, but only works on the **same machine**.
 
-```python session=shm_demo ansi=false
+```python
 from dimos.protocol.pubsub.shmpubsub import PickleSharedMemory
 
 shm = PickleSharedMemory(prefer="cpu")
@@ -253,7 +278,7 @@ shm.subscribe("test/topic", lambda msg, topic: received.append(msg))
 shm.publish("test/topic", {"data": [1, 2, 3]})
 
 import time
-time.sleep(0.1)  # Allow message to propagate
+time.sleep(0.1)
 
 print(f"Received: {received}")
 shm.stop()
@@ -264,23 +289,20 @@ shm.stop()
 Received: [{'data': [1, 2, 3]}]
 ```
 
-# Implementing a Simple Transport
+---
 
-The simplest toy transport is `Memory`, which works within a single process, start from there,
+# A minimal transport: `Memory`
 
-```python session=memory_demo ansi=false
+The simplest toy backend is `Memory` (single process). Start from there when implementing a new pubsub backend.
+
+```python
 from dimos.protocol.pubsub.memory import Memory
 
-# Create a memory transport
 bus = Memory()
-
-# Track received messages
 received = []
 
-# Subscribe to a topic
 unsubscribe = bus.subscribe("sensor/data", lambda msg, topic: received.append(msg))
 
-# Publish messages
 bus.publish("sensor/data", {"temperature": 22.5})
 bus.publish("sensor/data", {"temperature": 23.0})
 
@@ -288,7 +310,6 @@ print(f"Received {len(received)} messages:")
 for msg in received:
     print(f"  {msg}")
 
-# Unsubscribe when done
 unsubscribe()
 ```
 
@@ -299,25 +320,27 @@ Received 2 messages:
   {'temperature': 23.0}
 ```
 
-The full implementation is minimal. See [`memory.py`](/dimos/protocol/pubsub/memory.py) for the complete source.
+See [`memory.py`](/dimos/protocol/pubsub/memory.py) for the complete source.
 
-# Encode/Decode Mixins
+---
 
-Transports often need to serialize messages before sending and deserialize after receiving. The `PubSubEncoderMixin` at [`pubsub/spec.py`](/dimos/protocol/pubsub/spec.py#L95) provides a clean way to add encoding/decoding to any pubsub implementation.
+# Encode/decode mixins
 
-## Available Mixins
+Transports often need to serialize messages before sending and deserialize after receiving.
 
-| Mixin                          | Encoding        | Use Case                              |
-|--------------------------------|-----------------|---------------------------------------|
-| `PickleEncoderMixin`           | Python pickle   | Any Python object, same-language only |
-| `LCMEncoderMixin`              | LCM binary      | Cross-language (C/C++/Python/Java/Go) |
-| `JpegEncoderMixin`             | JPEG compressed | Image data, reduces bandwidth         |
+`PubSubEncoderMixin` at [`pubsub/spec.py`](/dimos/protocol/pubsub/spec.py#L95) provides a clean way to add encoding/decoding to any pubsub implementation.
 
-The `LCMEncoderMixin` is especially powerful because LCM messages encode to compact binary that works across languages. This means you can use LCM message definitions with *any* transport - not just LCM's UDP multicast. See [lcm](/docs/concepts/lcm.md) for details on LCM message types.
+## Available mixins
 
-## Creating a Custom Mixin
+| Mixin                | Encoding        | Use case                           |
+|----------------------|-----------------|------------------------------------|
+| `PickleEncoderMixin` | Python pickle   | Any Python object, Python-only     |
+| `LCMEncoderMixin`    | LCM binary      | Cross-language (C/C++/Python/Go/…) |
+| `JpegEncoderMixin`   | JPEG compressed | Image data, reduces bandwidth      |
 
-Subclass `PubSubEncoderMixin` and implement `encode()` and `decode()`:
+`LCMEncoderMixin` is especially useful: you can use LCM message definitions with *any* transport (not just UDP multicast). See [LCM](/docs/concepts/lcm.md) for details.
+
+## Creating a custom mixin
 
 ```python session=jsonencoder
 from dimos.protocol.pubsub.spec import PubSubEncoderMixin
@@ -325,55 +348,55 @@ import json
 
 class JsonEncoderMixin(PubSubEncoderMixin[str, dict, bytes]):
     def encode(self, msg: dict, topic: str) -> bytes:
-        return json.dumps(msg).encode('utf-8')
+        return json.dumps(msg).encode("utf-8")
 
     def decode(self, msg: bytes, topic: str) -> dict:
-        return json.loads(msg.decode('utf-8'))
+        return json.loads(msg.decode("utf-8"))
 ```
 
-Then combine with a pubsub implementation using multiple inheritance:
+Combine with a pubsub implementation via multiple inheritance:
 
 ```python session=jsonencoder
-from dimos.protocol.pubsub import Memory
+from dimos.protocol.pubsub.memory import Memory
 
 class MyJsonPubSub(JsonEncoderMixin, Memory):
     pass
 ```
 
-The mixin automatically wraps `publish()` and `subscribe()` to handle encoding/decoding transparently. Your new transport implementation stays the same - just swap the mixin:
+Swap serialization by changing the mixin:
 
 ```python session=jsonencoder
 from dimos.protocol.pubsub.spec import PickleEncoderMixin
 
-# Switch to pickle - just change the mixin
 class MyPicklePubSub(PickleEncoderMixin, Memory):
     pass
 ```
 
-Same transport, different serialization - no code changes needed in the transport itself.
+---
 
-# Passing tests
+# Testing and benchmarks
 
-## Spec
+## Spec tests
 
-check [`pubsub/test_spec.py`](/dimos/protocol/pubsub/test_spec.py) for grid tests for your new protocol, make sure to pass those spec tests
+See [`pubsub/test_spec.py`](/dimos/protocol/pubsub/test_spec.py) for the grid tests your new backend should pass.
 
 ## Benchmarks
 
-Make sure to also benchmark your stuff to see it in context
+Add your backend to benchmarks to compare in context:
 
-`python -m pytest -svm tool -k "not bytes" dimos/protocol/pubsub/benchmark/test_benchmark.py`
+```sh skip
+python -m pytest -svm tool -k "not bytes" dimos/protocol/pubsub/benchmark/test_benchmark.py
+```
 
+---
 
-# Available Transports
+# Available transports
 
-Dimos includes several transport implementations:
-
-| Transport      | Use Case                               | Process Boundary | Network |
-|----------------|----------------------------------------|------------------|---------|
-| `Memory`       | Testing only, single process           | No               | No      |
-| `SharedMemory` | Multi-process on same machine          | Yes              | No      |
-| `LCM`          | Network communication (UDP multicast)  | Yes              | Yes     |
-| `Redis`        | Network communication via Redis server | Yes              | Yes     |
-| `ROS`          | ROS 2 topic communication              | Yes              | Yes     |
-| `DDS`          | Cyclone DDS without ROS (WIP)          | Yes              | Yes     |
+| Transport      | Use case                            | Cross-process | Network | Notes                          |
+|----------------|-------------------------------------|---------------|---------|--------------------------------|
+| `Memory`       | Testing only, single process        | No            | No      | Minimal reference impl         |
+| `SharedMemory` | Multi-process on same machine       | Yes           | No      | Highest throughput (IPC)       |
+| `LCM`          | Robot LAN broadcast (UDP multicast) | Yes           | Yes     | Best-effort; can drop packets  |
+| `Redis`        | Network pubsub via Redis server     | Yes           | Yes     | Central broker; adds hop       |
+| `ROS`          | ROS 2 topic communication           | Yes           | Yes     | Integrates with RViz/ROS tools |
+| `DDS`          | Cyclone DDS without ROS (WIP)       | Yes           | Yes     | WIP                            |
