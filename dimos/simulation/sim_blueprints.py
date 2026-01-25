@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pathlib import Path
+import sys
 
+from dimos.agents.cli.human import human_input
 from dimos.core.blueprints import autoconnect
 from dimos.core.transport import LCMTransport
 from dimos.msgs.sensor_msgs import (  # type: ignore[attr-defined]
@@ -25,11 +26,16 @@ from dimos.msgs.trajectory_msgs import JointTrajectory
 from dimos.simulation.manipulators.sim_module import simulation
 from dimos.utils.data import get_data
 
-xarm7_trajectory_sim = simulation(
-    engine="mujoco",
-    config_path=lambda: get_data("xarm7")
-    / "scene.xml",  # avoid triggering LFS downloads during tests
-    headless=True,
+_headless = sys.platform != "darwin"  # mjpython viewer runs reliably in a subprocess on macOS
+
+xarm7_trajectory_sim = autoconnect(
+    simulation(
+        engine="mujoco",
+        config_path=lambda: get_data("xarm7")
+        / "scene.xml",  # avoid triggering LFS downloads during tests
+        headless=_headless,
+    ),
+    human_input(),
 ).transports(
     {
         ("joint_state", JointState): LCMTransport("/xarm/joint_states", JointState),
