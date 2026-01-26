@@ -48,11 +48,11 @@ class ModuleConnection:
 class ModuleBlueprint:
     module: type[Module]
     connections: tuple[ModuleConnection, ...]
-    args: tuple[Any]
+    args: tuple[Any, ...]
     kwargs: dict[str, Any]
 
-    @staticmethod
-    def create(module: type[Module], args: tuple[Any], kwargs: dict[str, Any]) -> Self:
+    @classmethod
+    def create(cls, module: type[Module], args: tuple[Any, ...], kwargs: dict[str, Any]) -> Self:
         connections: list[ModuleConnection] = []
 
         # Use get_type_hints() to properly resolve string annotations.
@@ -73,9 +73,7 @@ class ModuleBlueprint:
             type_ = get_args(annotation)[0]
             connections.append(ModuleConnection(name=name, type=type_, direction=direction))  # type: ignore[arg-type]
 
-        return ModuleBlueprint(
-            module=module, connections=tuple(connections), args=args, kwargs=kwargs
-        )
+        return cls(module=module, connections=tuple(connections), args=args, kwargs=kwargs)
 
 
 @dataclass(frozen=True)
@@ -91,10 +89,10 @@ class ModuleBlueprintSet:
     )
     requirement_checks: tuple[Callable[[], str | None], ...] = field(default_factory=tuple)
 
-    @staticmethod
-    def create(module: type[Module], *args: tuple[Any], **kwargs: dict[str, Any]) -> Self:
+    @classmethod
+    def create(cls, module: type[Module], *args: Any, **kwargs: Any) -> Self:
         blueprint = ModuleBlueprint.create(module, args, kwargs)
-        return ModuleBlueprintSet(blueprints=(blueprint,))
+        return cls(blueprints=(blueprint,))
 
     def transports(self, transports: dict[tuple[str, type], Any]) -> "ModuleBlueprintSet":
         return ModuleBlueprintSet(
