@@ -31,7 +31,7 @@ from dimos.core.module import Module
 from dimos.core.module_coordinator import ModuleCoordinator
 from dimos.core.stream import In, Out
 from dimos.core.transport import LCMTransport, PubSubTransport, pLCMTransport
-from dimos.spec.utils import get_protocol_method_signatures, is_spec
+from dimos.spec.utils import Spec, is_spec, spec_annotation_compliance, spec_structural_compliance
 from dimos.utils.generic import short_id
 from dimos.utils.logging_config import setup_logger
 
@@ -51,7 +51,7 @@ class StreamRef:
 @dataclass(frozen=True)
 class ModuleRef:
     name: str
-    rpc_method_names: tuple[str, ...]
+    spec: Spec | Module
 
 
 @dataclass(frozen=True)
@@ -88,12 +88,11 @@ class _BlueprintAtom:
                 )
             # linking to unknown module via Spec
             elif is_spec(annotation):
-                rpc_method_names = tuple(get_protocol_method_signatures(annotation).keys())
-                module_refs.append(ModuleRef(name=name, rpc_method_names=rpc_method_names))
+                module_refs.append(ModuleRef(name=name, spec=annotation))
             # linking to specific/known module directly
             elif isinstance(getattr(module, name, None), Module):
                 other_module = getattr(module, name)
-                module_refs.append(ModuleRef(name=name, rpc_method_names=other_module.rpc_calls))
+                module_refs.append(ModuleRef(name=name, spec=other_module.rpc_calls))
 
         return _BlueprintAtom(
             module=module,
@@ -111,7 +110,7 @@ class Blueprint:
         default_factory=lambda: MappingProxyType({})
     )
     global_config_overrides: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
-    remapping_map: Mapping[tuple[type[Module], str], str] = field(
+    remapping_map: Mapping[tuple[type[Module], str], str | type[Module]] = field(
         default_factory=lambda: MappingProxyType({})
     )
     requirement_checks: tuple[Callable[[], str | None], ...] = field(default_factory=tuple)
@@ -292,6 +291,66 @@ class Blueprint:
                     transport=transport.__class__.__name__,
                 )
 
+    def _connect_module_refs(self, module_coordinator: ModuleCoordinator) -> None:
+        # partly fill out the mod_and_mod_ref_to_proxy
+        mod_and_mod_ref_to_proxy = {
+            (module, name): replacement
+            for (module, name), replacement in self.remapping_map.items()
+            if is_spec(replacement) or issubclass(replacement, Module)
+        }
+        
+        # after this loop we should have an exact module for every module_ref on every blueprint
+        for blueprint in self.blueprints:
+            for each_module_ref in blueprint.module_refs:
+                # we've got to find a another module that implements this spec
+                spec = mod_and_mod_ref_to_proxy.get((blueprint.module, each_module_ref.name), each_module_ref.spec)
+                
+                # if the spec is actually module, use that (basically a user override)
+                if isinstance(spec, Module):
+                    mod_and_mod_ref_to_proxy[blueprint.module, each_module_ref.name] = module_coordinator.get_instance(spec)
+                    continue
+                
+                # find all available candidates
+                possible_module_candidates = [
+                    each_other_blueprint.module
+                        for each_other_blueprint in self.blueprints
+                        if (
+                            each_other_blueprint != blueprint and 
+                            spec_structural_compliance(each_other_blueprint, spec)
+                        )
+                ]
+                # we keep valid separate from invalid to provide a better error message for "almost" valid cases
+                valid_module_candidates = [
+                    each_candidate
+                    for each_candidate in possible_module_candidates
+                    if spec_annotation_compliance(each_candidate, spec)
+                ]
+                # none
+                if len(possible_module_candidates) == 0:
+                    raise Exception(f'''The {blueprint.module.__name__} has a module reference ({each_module_ref}) which requested a module that fills out the {each_module_ref.spec.__name__} spec. But I couldn't find a module that met that spec.\n''')
+                # exactly one structurally valid candidate
+                elif len(possible_module_candidates) == 1:
+                    if len(valid_module_candidates) == 0:
+                        logger.warning(f'''The {blueprint.module.__name__} has a module reference ({each_module_ref}) which requested a module that fills out the {each_module_ref.spec.__name__} spec. I found a module ({possible_module_candidates[0].__name__}) that met that spec structurally, but it had a mismatch in type annotations.\nPlease either change the {each_module_ref.spec.__name__} spec or the {possible_module_candidates[0].__name__} module.\n''')
+                    mod_and_mod_ref_to_proxy[blueprint.module, each_module_ref.name] = possible_module_candidates[0]
+                    continue
+                # more than one
+                elif len(valid_module_candidates) > 1:
+                    raise Exception(f'''The {blueprint.module.__name__} has a module reference ({each_module_ref}) which requested a module that fills out the {each_module_ref.spec.__name__} spec. But I found multiple modules that met that spec: {possible_module_candidates}.\nTo fix this use .remappings, for example:\n    autoconnect(...).remappings([ ({blueprint.module.__name__}, {repr(each_module_ref.name)}, <ModuleThatHasTheRpcCalls>) ])\n''')
+                # structural candidates, but no valid candidates
+                elif len(valid_module_candidates) == 0:
+                    possible_module_candidates_str = ', '.join([each_candidate.__name__ for each_candidate in possible_module_candidates])
+                    raise Exception(f'''The {blueprint.module.__name__} has a module reference ({each_module_ref}) which requested a module that fills out the {each_module_ref.spec.__name__} spec. Some modules ({possible_module_candidates_str}) met the spec structurally but had a mismatch in type annotations\n''')
+                # one valid candidate (and more than one structurally valid candidate)
+                else:
+                    mod_and_mod_ref_to_proxy[blueprint.module, each_module_ref.name] = valid_module_candidates[0]
+        
+        # now that we know the connections, we mutate the RPCClient objects
+        for (base_module, module_ref_name), target_module in mod_and_mod_ref_to_proxy.items():
+            base_module_proxy: ModuleProxy = module_coordinator.get_instance(base_module)
+            target_module_proxy: ModuleProxy = module_coordinator.get_instance(target_module)
+            setattr(base_module_proxy, module_ref_name, target_module_proxy.get_rpc_calls(module_ref_name))
+
     def _connect_rpc_methods(self, module_coordinator: ModuleCoordinator) -> None:
         # Gather all RPC methods.
         rpc_methods = {}
@@ -448,6 +507,7 @@ class Blueprint:
         self._deploy_all_modules(module_coordinator, global_config)
         self._connect_transports(module_coordinator)
         self._connect_rpc_methods(module_coordinator)
+        self._connect_module_refs(module_coordinator)
 
         module_coordinator.start_all_modules()
 
