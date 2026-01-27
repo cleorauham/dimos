@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Protocol
+
 import pytest
 
 from dimos.core._test_future_annotations_helper import (
@@ -33,6 +35,7 @@ from dimos.core.rpc_client import RpcCall
 from dimos.core.stream import In, Out
 from dimos.core.transport import LCMTransport
 from dimos.protocol import pubsub
+from dimos.spec.utils import Spec
 
 # Disable Rerun for tests (prevents viewer spawn and gRPC flush errors)
 _BUILD_WITHOUT_RERUN = {
@@ -375,3 +378,98 @@ def test_future_annotations_autoconnect() -> None:
 
     finally:
         coordinator.stop()
+
+
+class Compute(Spec, Protocol):
+    @rpc
+    def compute1(self, a: int, b: int) -> int: ...
+
+    @rpc
+    def compute2(self, a: float, b: float) -> float: ...
+
+
+class Calculator1(Module):
+    @rpc
+    def compute1(self, a: int, b: int) -> int:
+        return a + b
+
+    @rpc
+    def compute2(self, a: float, b: float) -> float:
+        return a + b
+
+
+class Calculator2(Module):
+    @rpc
+    def compute1(self, a: int, b: int) -> int:
+        return a * b
+
+    @rpc
+    def compute2(self, a: float, b: float) -> float:
+        return a * b
+
+
+class Mod1(Module):
+    stream1: In[Data1]
+    calc: Compute
+
+    @rpc
+    def start(self) -> None:
+        _ = self.calc.compute1  # smoke check that it exists
+
+
+@pytest.mark.integration
+def test_protocol_module_ref_autoconnect() -> None:
+    blueprint_set = autoconnect(Calculator1.blueprint(), Mod1.blueprint())
+    mod1_proxy = type("Mod1Proxy", (), {})()
+    calc1_proxy = Calculator1()
+
+    class FakeCoordinator:
+        def __init__(self, mapping):
+            self._mapping = mapping
+
+        def get_instance(self, module):
+            return self._mapping.get(module)
+
+    coordinator = FakeCoordinator({Mod1: mod1_proxy, Calculator1: calc1_proxy})
+    blueprint_set._connect_module_refs(coordinator)  # type: ignore[arg-type]
+
+    assert mod1_proxy.calc is calc1_proxy
+    assert mod1_proxy.calc.compute1(1, 2) == 3
+
+
+@pytest.mark.integration
+def test_protocol_module_ref_remap_ambiguous() -> None:
+    with pytest.raises(Exception):
+        autoconnect(
+            Calculator1.blueprint(),
+            Calculator2.blueprint(),
+            Mod1.blueprint(),
+        ).build(**_BUILD_WITHOUT_RERUN)
+
+    blueprint_set = autoconnect(
+        Calculator1.blueprint(),
+        Calculator2.blueprint(),
+        Mod1.blueprint(),
+    ).remappings(
+        [
+            (Mod1, "calc", Calculator1),
+        ]
+    )
+    mod1_proxy = type("Mod1Proxy", (), {})()
+    calc1_proxy = Calculator1()
+    calc2_proxy = Calculator2()
+
+    class FakeCoordinator:
+        def __init__(self, mapping):
+            self._mapping = mapping
+
+        def get_instance(self, module):
+            return self._mapping.get(module)
+
+    coordinator = FakeCoordinator(
+        {Mod1: mod1_proxy, Calculator1: calc1_proxy, Calculator2: calc2_proxy}
+    )
+    blueprint_set._connect_module_refs(coordinator)  # type: ignore[arg-type]
+
+    assert mod1_proxy.calc is calc1_proxy
+    assert mod1_proxy.calc.compute1(2, 3) == 5

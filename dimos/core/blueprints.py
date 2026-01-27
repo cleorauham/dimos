@@ -51,7 +51,7 @@ class StreamRef:
 @dataclass(frozen=True)
 class ModuleRef:
     name: str
-    spec: Spec | Module
+    spec: Spec | type[Module]
 
 
 @dataclass(frozen=True)
@@ -92,9 +92,8 @@ class _BlueprintAtom:
             elif is_spec(annotation):
                 module_refs.append(ModuleRef(name=name, spec=annotation))
             # linking to specific/known module directly
-            elif isinstance(getattr(module, name, None), Module):
-                other_module = getattr(module, name)
-                module_refs.append(ModuleRef(name=name, spec=other_module.rpc_calls))
+            elif isinstance(annotation, type) and issubclass(annotation, Module):
+                module_refs.append(ModuleRef(name=name, spec=annotation))
 
         return cls(
             module=module,
@@ -310,10 +309,8 @@ class Blueprint:
                 )
 
                 # if the spec is actually module, use that (basically a user override)
-                if isinstance(spec, Module):
-                    mod_and_mod_ref_to_proxy[blueprint.module, each_module_ref.name] = (
-                        module_coordinator.get_instance(spec)
-                    )
+                if isinstance(spec, type) and issubclass(spec, Module):
+                    mod_and_mod_ref_to_proxy[blueprint.module, each_module_ref.name] = spec
                     continue
 
                 # find all available candidates
@@ -322,7 +319,7 @@ class Blueprint:
                     for each_other_blueprint in self.blueprints
                     if (
                         each_other_blueprint != blueprint
-                        and spec_structural_compliance(each_other_blueprint, spec)
+                        and spec_structural_compliance(each_other_blueprint.module, spec)
                     )
                 ]
                 # we keep valid separate from invalid to provide a better error message for "almost" valid cases
@@ -372,7 +369,7 @@ class Blueprint:
             setattr(
                 base_module_proxy,
                 module_ref_name,
-                target_module_proxy.get_rpc_calls(module_ref_name),
+                target_module_proxy,
             )
 
     def _connect_rpc_methods(self, module_coordinator: ModuleCoordinator) -> None:
