@@ -15,20 +15,15 @@
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 import time
-from typing import TYPE_CHECKING, Any, cast
-
-if TYPE_CHECKING:
-    from rerun._baseclasses import Archetype
+from typing import Any
 
 import reactivex as rx
 from reactivex import operators as ops
-import rerun as rr
 
 from dimos.agents import Output, Reducer, Stream, skill
 from dimos.core import Module, ModuleConfig, Out, rpc
 from dimos.core.blueprints import autoconnect
 from dimos.core.global_config import GlobalConfig
-from dimos.dashboard.rerun_init import connect_rerun
 from dimos.hardware.sensors.camera.spec import CameraHardware
 from dimos.hardware.sensors.camera.webcam import Webcam
 from dimos.msgs.geometry_msgs import Quaternion, Transform, Vector3
@@ -80,11 +75,6 @@ class CameraModule(Module[CameraModuleConfig], perception.Camera):
         else:
             self.hardware = self.config.hardware
 
-        # Connect to Rerun if enabled (cache flag for use in callbacks)
-        self._rerun_enabled = self._global_config.viewer_backend.startswith("rerun")
-        if self._rerun_enabled:
-            connect_rerun(global_config=self._global_config)
-
         stream = self.hardware.image_stream()
 
         if self.config.frequency > 0:
@@ -92,8 +82,6 @@ class CameraModule(Module[CameraModuleConfig], perception.Camera):
 
         def on_image(image: Image) -> None:
             self.color_image.publish(image)
-            if self._rerun_enabled:
-                rr.log("world/robot/camera/rgb", image.to_rerun())
 
         self._disposables.add(
             stream.subscribe(on_image),
@@ -106,12 +94,6 @@ class CameraModule(Module[CameraModuleConfig], perception.Camera):
     def publish_metadata(self) -> None:
         camera_info = self.hardware.camera_info.with_ts(time.time())
         self.camera_info.publish(camera_info)
-
-        if self._rerun_enabled:
-            rr.log(
-                "world/robot/camera",
-                cast("Archetype", camera_info.to_rerun(image_topic=None, optical_transform=None)),
-            )
 
         if not self.config.transform:
             return
