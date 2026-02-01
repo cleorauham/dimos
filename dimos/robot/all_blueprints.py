@@ -49,7 +49,6 @@ all_blueprints = {
     "unitree-go2-agentic-mcp": "dimos.robot.unitree_webrtc.unitree_go2_blueprints:unitree_go2_agentic_mcp",
     "unitree-go2-agentic-ollama": "dimos.robot.unitree_webrtc.unitree_go2_blueprints:unitree_go2_agentic_ollama",
     "unitree-go2-basic": "dimos.robot.unitree_webrtc.unitree_go2_blueprints:unitree_go2_basic",
-    "unitree-go2-bridge": "dimos.robot.unitree_webrtc.unitree_go2_blueprints:unitree_go2_bridge",
     "unitree-go2-detection": "dimos.robot.unitree_webrtc.unitree_go2_blueprints:unitree_go2_detection",
     "unitree-go2-ros": "dimos.robot.unitree_webrtc.unitree_go2_blueprints:unitree_go2_ros",
     "unitree-go2-spatial": "dimos.robot.unitree_webrtc.unitree_go2_blueprints:unitree_go2_spatial",
