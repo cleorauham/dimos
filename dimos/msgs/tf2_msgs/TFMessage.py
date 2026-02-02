@@ -127,7 +127,9 @@ class TFMessage:
     def __str__(self) -> str:
         lines = [f"TFMessage with {len(self.transforms)} transforms:"]
         for i, transform in enumerate(self.transforms):
-            lines.append(f"  [{i}] {transform.frame_id} @ {transform.ts:.3f}")
+            lines.append(
+                f"  [{i}] {transform.frame_id} → {transform.child_frame_id} @ {transform.ts:.3f}"
+            )
         return "\n".join(lines)
 
     @classmethod
@@ -180,6 +182,6 @@ class TFMessage:
         """
         results: RerunMulti = []
         for transform in self.transforms:
-            entity_path = f"world/{transform.child_frame_id}"
+            entity_path = f"world/tf/{transform.child_frame_id}"
             results.append((entity_path, transform.to_rerun()))
         return results

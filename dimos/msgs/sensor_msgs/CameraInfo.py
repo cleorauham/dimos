@@ -403,8 +403,13 @@ class CameraInfo(Timestamped):
         self,
         image_plane_distance: float = 1.0,
         # These are defaults for a typical RGB camera with a known transform
-        image_topic: str | None = "color_image",
-        optical_transform: str | None = "camera_optical",
+        #
+        # TODO this should be done by the actual emitting modules,
+        # they know the camera image topic, spatial relationships etc
+        #
+        # poor CameraInfo class has no idea on this
+        image_topic: str | None = None,
+        optical_frame: str | None = None,
     ) -> RerunData:
         """Convert to Rerun Pinhole archetype for camera frustum visualization.
 
@@ -439,7 +444,7 @@ class CameraInfo(Timestamped):
         # Add pinhole under world/image_topic (we know which Image this CameraInfo refers to)
         ret.append(
             (
-                f"world/{image_topic}",
+                image_topic,
                 rr.Pinhole(
                     focal_length=[fx, fy],
                     principal_point=[cx, cy],
@@ -450,18 +455,14 @@ class CameraInfo(Timestamped):
             )
         )
 
-        if not optical_transform:
+        if not optical_frame:
             return ret
 
         # Add 3d transform from optical frame to world/image_topic (We know where the camera is)
         ret.append(
             (
-                "world/color_image",
-                rr.Transform3D(
-                    translation=[0.0, 0.0, 0.0],
-                    rotation=rr.Quaternion(xyzw=[0.0, 0.0, 0.0, 1.0]),
-                    parent_frame=f"tf#/{optical_transform}",
-                ),
+                image_topic,
+                rr.Transform3D(parent_frame=f"tf#/{optical_frame}"),
             )
         )
 

@@ -103,6 +103,9 @@ class Config(ModuleConfig):
 
     visual_override: dict[Glob | str, Callable[[Any], Archetype]] = field(default_factory=dict)
 
+    # Static items logged once after start. Maps entity_path -> callable(rr) returning Archetype
+    static: dict[str, Callable[[Any], Archetype]] = field(default_factory=dict)
+
     entity_prefix: str = "world"
     topic_to_entity: Callable[[Any], str] | None = None
     viewer_mode: ViewerMode = "native"
@@ -221,6 +224,14 @@ class RerunBridgeModule(Module):
             if hasattr(pubsub, "stop"):
                 self._disposables.add(Disposable(pubsub.stop))  # type: ignore[union-attr]
 
+        self._log_static()
+
+    def _log_static(self) -> None:
+        import rerun as rr
+
+        for entity_path, factory in self.config.static.items():
+            rr.log(entity_path, factory(rr), static=True)
+
     @rpc
     def stop(self) -> None:
         super().stop()
@@ -253,6 +264,10 @@ def main() -> None:
         pubsubs=[LCM(autoconf=True)],
         # custom converters for specific rerun entity paths
         visual_override={
+            "world/camera_info": lambda camera_info: camera_info.to_rerun(
+                image_topic="world/color_image",
+                optical_frame="camera_optical",
+            ),
             "world/global_map": lambda grid: grid.to_rerun(voxel_size=0.1),
             "world/debug_navigation": lambda grid: grid.to_rerun(
                 colormap="Accent",
@@ -260,6 +275,12 @@ def main() -> None:
                 opacity=0.2,
                 background="#484981",
             ),
+        },
+        static={
+            "world/tf/base_link/box": lambda rr: rr.Boxes3D(
+                half_sizes=[2.0, 2.0, 1.0],
+                centers=[0, 0, 0],
+            )
         },
     )
 
