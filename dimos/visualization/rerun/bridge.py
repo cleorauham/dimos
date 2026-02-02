@@ -75,7 +75,7 @@ class RerunConvertible(Protocol):
 
 ViewerMode = Literal["native", "web", "none"]
 
-# Notes on this system
+# TODO on plans with this system
 #
 # In the future it would be nice if modules can annotate their individual OUTs with (general or rerun specific)
 # hints related to their visualization
@@ -91,6 +91,22 @@ ViewerMode = Literal["native", "web", "none"]
 #
 # temporarily we are using these "sideloading" converters={} to define custom to_rerun methods for specific topics
 # as well as pubsubs to specify which protocols to listen to.
+
+
+# TODO Notes for correct TF processing
+#
+# TF for rerun would ideally follow rerun entity path conventions
+#
+# /world/robot1/base_link/camera/optical
+#
+# while we have decoupled entity paths and actual transforms (like ROS TF frames)
+#
+# tf#/world
+# tf#/base_link
+# tf#/camera
+#
+# In order to solve this, bridge needs to own it's own tf service
+# and render it's tf tree into correct rerun entity paths
 
 
 @dataclass
@@ -230,7 +246,12 @@ class RerunBridgeModule(Module):
         import rerun as rr
 
         for entity_path, factory in self.config.static.items():
-            rr.log(entity_path, factory(rr), static=True)
+            data = factory(rr)
+            if isinstance(data, list):
+                for archetype in data:
+                    rr.log(entity_path, archetype, static=True)
+            else:
+                rr.log(entity_path, data, static=True)
 
     @rpc
     def stop(self) -> None:
@@ -262,10 +283,14 @@ def main() -> None:
         # any pubsub that supports subscribe_all and topic that supports str(topic)
         # is acceptable here
         pubsubs=[LCM(autoconf=True)],
-        # custom converters for specific rerun entity paths
+        # Custom converters for specific rerun entity paths
+        # Normally all these would be specified in their respectative modules
+        # Until this is implemented we have central overrides here
+        #
+        # This is unsustainable once we move to multi robot etc
         visual_override={
             "world/camera_info": lambda camera_info: camera_info.to_rerun(
-                image_topic="world/color_image",
+                image_topic="/world/color_image",
                 optical_frame="camera_optical",
             ),
             "world/global_map": lambda grid: grid.to_rerun(voxel_size=0.1),
@@ -276,11 +301,16 @@ def main() -> None:
                 background="#484981",
             ),
         },
+        # slapping a go2 shaped box on top of tf/base_link
         static={
-            "world/tf/base_link/box": lambda rr: rr.Boxes3D(
-                half_sizes=[2.0, 2.0, 1.0],
-                centers=[0, 0, 0],
-            )
+            "world/tf/base_link": lambda rr: [
+                rr.Boxes3D(
+                    half_sizes=[0.35, 0.155, 0.2],
+                    colors=[(0, 255, 127)],
+                    fill_mode="wireframe",
+                ),
+                rr.Transform3D(parent_frame="tf#/base_link"),
+            ]
         },
     )
 
