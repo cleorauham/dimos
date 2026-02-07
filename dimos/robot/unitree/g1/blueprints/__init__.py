@@ -22,16 +22,17 @@ from dimos.robot.unitree.g1.blueprints.agentic.unitree_g1_full import unitree_g1
 from dimos.robot.unitree.g1.blueprints.basic.unitree_g1_basic import unitree_g1_basic
 from dimos.robot.unitree.g1.blueprints.basic.unitree_g1_basic_sim import unitree_g1_basic_sim
 from dimos.robot.unitree.g1.blueprints.basic.unitree_g1_joystick import unitree_g1_joystick
+from dimos.robot.unitree.g1.blueprints.perceptive._perception_and_memory import (
+    _perception_and_memory,
+)
+from dimos.robot.unitree.g1.blueprints.perceptive.unitree_g1 import unitree_g1
+from dimos.robot.unitree.g1.blueprints.perceptive.unitree_g1_detection import unitree_g1_detection
+from dimos.robot.unitree.g1.blueprints.perceptive.unitree_g1_shm import unitree_g1_shm
+from dimos.robot.unitree.g1.blueprints.perceptive.unitree_g1_sim import unitree_g1_sim
 from dimos.robot.unitree.g1.blueprints.primitive.uintree_g1_primitive_no_nav import (
     uintree_g1_basic_no_nav,
     uintree_g1_basic_no_nav as basic_no_nav,
 )
-
-from .perceptive._perception_and_memory import _perception_and_memory
-from .perceptive.unitree_g1 import unitree_g1
-from .perceptive.unitree_g1_detection import unitree_g1_detection
-from .perceptive.unitree_g1_shm import unitree_g1_shm
-from .perceptive.unitree_g1_sim import unitree_g1_sim
 
 __all__ = [
     "_agentic_skills",
