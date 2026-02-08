@@ -5,14 +5,14 @@ import signal
 import time
 from typing import TYPE_CHECKING, cast
 
-import lazy_loader as lazy
-
 from dimos.utils.logging_config import setup_logger
+import lazy_loader as lazy
 
 if TYPE_CHECKING:
     # Avoid runtime import to prevent circular import; ruff's TC001 would otherwise move it.
-    from dask.distributed import Client as DimosCluster
+    from dask.distributed import Client as DimosCluster, LocalCluster
 
+    from dimos.core.module import Module
     from dimos.core.rpc_client import ModuleProxy
 
 logger = setup_logger()

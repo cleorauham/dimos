@@ -107,7 +107,7 @@ def test_ros_conversion() -> None:
     print("\nTesting ROS PointCloud2 conversion...")
 
     # Create a simple test point cloud
-    import open3d as o3d
+    import open3d as o3d  # type: ignore[import-untyped]
 
     points = np.array(
         [

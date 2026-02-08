@@ -47,12 +47,12 @@ class SensorReplay(Generic[T]):
         self.root_dir = get_data(name)
         self.autocast = autocast
 
-    def load(self, *names: int | str) -> T | Any | list[T] | list[Any]:
+    def load(self, *names: int | str) -> T | list[T]:
         if len(names) == 1:
             return self.load_one(names[0])
         return list(map(lambda name: self.load_one(name), names))
 
-    def load_one(self, name: int | str | Path) -> T | Any:
+    def load_one(self, name: int | str | Path) -> T:
         if isinstance(name, int):
             full_path = self.root_dir / f"/{name:03d}.pickle"
         elif isinstance(name, Path):
@@ -66,7 +66,7 @@ class SensorReplay(Generic[T]):
                 return self.autocast(data)
             return data
 
-    def first(self) -> T | Any | None:
+    def first(self) -> T | None:
         try:
             return next(self.iterate())
         except StopIteration:
@@ -85,14 +85,14 @@ class SensorReplay(Generic[T]):
             key=extract_number,
         )
 
-    def iterate(self, loop: bool = False) -> Iterator[T | Any]:
+    def iterate(self, loop: bool = False) -> Iterator[T]:
         while True:
             for file_path in self.files:
                 yield self.load_one(Path(file_path))
             if not loop:
                 break
 
-    def stream(self, rate_hz: float | None = None, loop: bool = False) -> Observable[T | Any]:
+    def stream(self, rate_hz: float | None = None, loop: bool = False) -> Observable[T]:
         if rate_hz is None:
             return from_iterable(self.iterate(loop=loop))
 
@@ -177,7 +177,7 @@ class TimedSensorStorage(SensorStorage[T]):
 
 
 class TimedSensorReplay(SensorReplay[T]):
-    def load_one(self, name: int | str | Path) -> T | Any:
+    def load_one(self, name: int | str | Path) -> T:
         if isinstance(name, int):
             full_path = self.root_dir / f"/{name:03d}.pickle"
         elif isinstance(name, Path):
@@ -191,7 +191,7 @@ class TimedSensorReplay(SensorReplay[T]):
                 return (data[0], self.autocast(data[1]))
             return data
 
-    def find_closest(self, timestamp: float, tolerance: float | None = None) -> T | Any | None:
+    def find_closest(self, timestamp: float, tolerance: float | None = None) -> T | None:
         """Find the frame closest to the given timestamp.
 
         Args:
@@ -222,7 +222,7 @@ class TimedSensorReplay(SensorReplay[T]):
 
     def find_closest_seek(
         self, relative_seconds: float, tolerance: float | None = None
-    ) -> T | Any | None:
+    ) -> T | None:
         """Find the frame closest to a time relative to the start.
 
         Args:
