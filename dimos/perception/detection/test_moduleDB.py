@@ -34,7 +34,7 @@ def test_moduleDB(dimos_cluster) -> None:
         camera_info=connection.camera_info_static(),
         goto=lambda obj_id: print(f"Going to {obj_id}"),
     )
-    moduleDB.image.connect(connection.video)
+    moduleDB.image.connect(connection.color_image)
     moduleDB.pointcloud.connect(connection.lidar)
 
     moduleDB.annotations.transport = LCMTransport("/annotations", ImageAnnotations)
