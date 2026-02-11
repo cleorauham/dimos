@@ -1744,7 +1744,6 @@ dependencies = [
     { name = "pin" },
     { name = "plotext" },
     { name = "plum-dispatch" },
-    { name = "psycopg2-binary" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
@@ -1851,6 +1850,7 @@ dev = [
     { name = "types-networkx" },
     { name = "types-protobuf" },
     { name = "types-psutil" },
+    { name = "types-psycopg2" },
     { name = "types-pysocks" },
     { name = "types-pytz" },
     { name = "types-pyyaml" },
@@ -1938,6 +1938,9 @@ perception = [
     { name = "transformers", extra = ["torch"] },
     { name = "ultralytics" },
 ]
+psql = [
+    { name = "psycopg2-binary" },
+]
 sim = [
     { name = "mujoco" },
     { name = "playground" },
@@ -1986,11 +1989,6 @@ web = [
     { name = "soundfile" },
     { name = "sse-starlette" },
     { name = "uvicorn" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "types-psycopg2" },
 ]
 
 [package.metadata]
@@ -2074,7 +2072,7 @@ requires-dist = [
     { name = "plum-dispatch", specifier = "==2.5.7" },
     { name = "plum-dispatch", marker = "extra == 'docker'", specifier = "==2.5.7" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = "==4.2.0" },
-    { name = "psycopg2-binary", specifier = ">=2.9.11" },
+    { name = "psycopg2-binary", marker = "extra == 'psql'", specifier = ">=2.9.11" },
     { name = "py-spy", marker = "extra == 'dev'" },
     { name = "pydantic" },
     { name = "pydantic", marker = "extra == 'docker'" },
@@ -2140,6 +2138,7 @@ requires-dist = [
     { name = "types-networkx", marker = "extra == 'dev'", specifier = ">=3.5.0.20251001,<4" },
     { name = "types-protobuf", marker = "extra == 'dev'", specifier = ">=6.32.1.20250918,<7" },
     { name = "types-psutil", marker = "extra == 'dev'", specifier = ">=7.0.0.20251001,<8" },
+    { name = "types-psycopg2", marker = "extra == 'dev'", specifier = ">=2.9.21.20251012" },
     { name = "types-pysocks", marker = "extra == 'dev'", specifier = ">=1.7.1.20251001,<2" },
     { name = "types-pytz", marker = "extra == 'dev'", specifier = ">=2025.2.0.20250809,<2026" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12.20250915,<7" },
@@ -2157,10 +2156,7 @@ requires-dist = [
     { name = "xformers", marker = "extra == 'cuda'", specifier = ">=0.0.20" },
     { name = "yapf", marker = "extra == 'misc'", specifier = "==0.40.2" },
 ]
-provides-extras = ["misc", "visualization", "agents", "web", "perception", "unitree", "manipulation", "cpu", "cuda", "dev", "sim", "drone", "docker", "base"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "types-psycopg2", specifier = ">=2.9.21.20251012" }]
+provides-extras = ["misc", "visualization", "agents", "web", "perception", "unitree", "manipulation", "cpu", "cuda", "dev", "psql", "sim", "drone", "docker", "base"]
 
 [[package]]
 name = "dimos-lcm"

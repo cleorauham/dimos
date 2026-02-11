@@ -64,7 +64,6 @@ dependencies = [
     # TODO: rerun shouldn't be required but rn its in core (there is NO WAY to use dimos without rerun rn)
     # remove this once rerun is optional in core
     "rerun-sdk>=0.20.0",
-    "psycopg2-binary>=2.9.11",
     "toolz>=1.1.0",
 ]
 
@@ -254,9 +253,14 @@ dev = [
     "types-tabulate>=0.9.0.20241207,<1",
     "types-tensorflow>=2.18.0.20251008,<3",
     "types-tqdm>=4.67.0.20250809,<5",
+    "types-psycopg2>=2.9.21.20251012",
 
     # Tools
     "py-spy",
+]
+
+psql = [
+    "psycopg2-binary>=2.9.11"
 ]
 
 sim = [
@@ -304,10 +308,6 @@ base = [
     "dimos[agents,web,perception,visualization,sim]",
 ]
 
-[dependency-groups]
-dev = [
-    "types-psycopg2>=2.9.21.20251012",
-]
 
 [tool.ruff]
 line-length = 100
