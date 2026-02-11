@@ -629,7 +629,7 @@ class ManipulationModule(Module):
             project_root / "dimos" / "manipulation" / "grasping" / "docker_context" / "Dockerfile"
         )
         self._graspgen = DockerModule(
-            GraspGenModule,
+            GraspGenModule,  # type: ignore[arg-type]
             docker_file=docker_file,
             docker_build_context=project_root,
             docker_image=self.config.graspgen_docker_image,
@@ -654,7 +654,8 @@ class ManipulationModule(Module):
         graspgen = self._get_graspgen()
         if graspgen is None:
             return None
-        return graspgen.generate_grasps(pointcloud, scene_pointcloud)
+        result: PoseArray | None = graspgen.generate_grasps(pointcloud, scene_pointcloud)
+        return result
 
     @property
     def world_monitor(self) -> WorldMonitor | None:
