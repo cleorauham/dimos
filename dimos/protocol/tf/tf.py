@@ -53,13 +53,13 @@ class TFSpec(Service[TFConfig]):
         return set()
 
     @abstractmethod
-    def get(  # type: ignore[no-untyped-def]
+    def get(
         self,
         parent_frame: str,
         child_frame: str,
         time_point: float | None = None,
         time_tolerance: float | None = None,
-    ): ...
+    ) -> Transform | None: ...
 
     def receive_transform(self, *args: Transform) -> None: ...
 

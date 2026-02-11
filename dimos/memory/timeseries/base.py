@@ -175,14 +175,6 @@ class TimeSeriesStore(Generic[T], ABC):
         """Load data at exact timestamp."""
         return self._load(timestamp)
 
-    def get(self, timestamp: float, tolerance: float | None = 1.0) -> T | None:
-        """Get data at exact timestamp or closest within tolerance."""
-        return self.find_closest(timestamp, tolerance)
-
-    def add(self, data: T) -> None:
-        """Add a single Timestamped item."""
-        self._save(data.ts, data)
-
     def prune_old(self, cutoff: float) -> None:
         """Prune items older than cutoff timestamp."""
         for ts, _ in self._iter_items(end=cutoff):
