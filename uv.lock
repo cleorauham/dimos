@@ -1914,6 +1914,7 @@ misc = [
     { name = "lark" },
     { name = "onnx" },
     { name = "open-clip-torch" },
+    { name = "openarm-can" },
     { name = "opencv-contrib-python" },
     { name = "python-multipart" },
     { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -2056,6 +2057,7 @@ requires-dist = [
     { name = "open3d", marker = "extra == 'docker'" },
     { name = "openai", marker = "extra == 'agents'" },
     { name = "openai-whisper", marker = "extra == 'agents'" },
+    { name = "openarm-can", marker = "extra == 'misc'", specifier = ">=1.2.2" },
     { name = "opencv-contrib-python", marker = "extra == 'misc'", specifier = "==4.10.0.84" },
     { name = "opencv-python" },
     { name = "opencv-python-headless", marker = "extra == 'docker'" },
@@ -6080,6 +6082,12 @@ dependencies = [
     { name = "triton", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'linux2'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/35/8e/d36f8880bcf18ec026a55807d02fe4c7357da9f25aebd92f85178000c0dc/openai_whisper-20250625.tar.gz", hash = "sha256:37a91a3921809d9f44748ffc73c0a55c9f366c85a3ef5c2ae0cc09540432eb96", size = 803191, upload-time = "2025-06-26T01:06:13.34Z" }
+
+[[package]]
+name = "openarm-can"
+version = "1.2.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4f/4e/bc8fcf3afbdb2f7469f68bf6af6fcd0716bc24d25eb373b5d46d7eb5181e/openarm_can-1.2.6.tar.gz", hash = "sha256:7a057f86a075d4163443e9f57dd966ec7a5a3d7cf9c3e47cda9c6faae7e4c2f1", size = 352797, upload-time = "2026-02-09T01:54:28.337Z" }
 
 [[package]]
 name = "opencv-contrib-python"
