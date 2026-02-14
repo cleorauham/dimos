@@ -37,7 +37,7 @@ from dimos.msgs.geometry_msgs.Twist import Twist
 from dimos.msgs.sensor_msgs.Imu import Imu
 from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
 
-_ECHO = str(Path(__file__).parent / "native_echo.py")
+_ECHO = str(Path(__file__).parent / "tests" / "native_echo.py")
 
 
 @pytest.fixture
