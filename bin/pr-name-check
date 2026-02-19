@@ -52,6 +52,7 @@ if [[ "$name_ok" -ne 1 || "$type_ok" -ne 1 ]]; then
   echo "Invalid branch name: '$branch'"
   echo
   echo "    Expected format: <your_name>/<type>/<description>"
+  echo "            Example: jeff/fix/ci-divergence"
   echo "        Parsed name: $branch_name"
   echo "      Allowed names: $allowed_names"
   echo "        Parsed type: $branch_type"
