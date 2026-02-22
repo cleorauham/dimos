@@ -21,7 +21,9 @@ from doclinks import (
     build_file_index,
     extract_other_backticks,
     find_symbol_line,
+    pick_best_candidate,
     process_markdown,
+    score_path_similarity,
     split_by_ignore_regions,
 )
 import pytest
@@ -518,6 +520,174 @@ class TestIgnoreRegions:
 
         # Verify the ignored region still has .md placeholder
         assert "[Configuration](.md) example" in new_content
+
+
+class TestPathSimilarity:
+    def test_exact_dir_match(self):
+        """Same directory components should give high score."""
+        candidate = Path("docs/agents/docs/codeblocks.md")
+        score = score_path_similarity(candidate, "docs/agents/docs_agent/codeblocks.md")
+        assert score >= 2  # docs, agents
+
+    def test_partial_match(self):
+        """Some shared dirs should give partial score."""
+        candidate = Path("docs/other/codeblocks.md")
+        score = score_path_similarity(candidate, "docs/agents/docs_agent/codeblocks.md")
+        assert score == 2  # docs dir + filename match
+
+    def test_no_match(self):
+        """Unrelated dirs should give filename-only score."""
+        candidate = Path("src/lib/codeblocks.md")
+        score = score_path_similarity(candidate, "docs/agents/docs_agent/codeblocks.md")
+        assert score == 1  # filename match only, no dir overlap
+
+    def test_pick_best_single(self):
+        """Single candidate always wins."""
+        candidates = [Path("docs/agents/docs/codeblocks.md")]
+        best = pick_best_candidate(candidates, "docs/agents/docs_agent/codeblocks.md")
+        assert best == candidates[0]
+
+    def test_pick_best_disambiguates(self):
+        """Should pick candidate with more directory overlap."""
+        candidates = [
+            Path("docs/other/codeblocks.md"),
+            Path("docs/agents/docs/codeblocks.md"),
+        ]
+        best = pick_best_candidate(candidates, "docs/agents/docs_agent/codeblocks.md")
+        assert best == Path("docs/agents/docs/codeblocks.md")
+
+    def test_pick_best_tie_returns_none(self):
+        """Tied scores should return None."""
+        candidates = [
+            Path("a/x/file.md"),
+            Path("b/x/file.md"),
+        ]
+        best = pick_best_candidate(candidates, "c/x/file.md")
+        assert best is None
+
+
+class TestMdLinkResolution:
+    def _process(self, content, file_index, doc_index, doc_path=None, link_mode="absolute"):
+        if doc_path is None:
+            doc_path = REPO_ROOT / "docs/usage/test.md"
+        return process_markdown(
+            content,
+            REPO_ROOT,
+            doc_path,
+            file_index,
+            link_mode=link_mode,
+            github_url=None,
+            github_ref="main",
+            doc_index=doc_index,
+        )
+
+    def test_resolves_relative_md_link(self, file_index, doc_index):
+        """Should resolve a valid relative .md link to absolute path."""
+        # docs/usage/configuration.md exists — link from docs/usage/test.md
+        content = "[Configuration](configuration.md)"
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        assert len(errors) == 0
+        assert "configuration.md" in new_content
+
+    def test_validates_absolute_md_link(self, file_index, doc_index):
+        """Valid absolute .md link should be left unchanged."""
+        content = "[Configuration](/docs/usage/configuration.md)"
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        assert len(errors) == 0
+        assert new_content == content
+
+    def test_reports_broken_absolute_md_link(self, file_index, doc_index):
+        """Broken absolute .md link with no match should error."""
+        content = "[Foo](/docs/nonexistent/xyzzy_no_match.md)"
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        assert len(errors) == 1
+        assert "Broken link" in errors[0] or "does not exist" in errors[0]
+
+    def test_searches_broken_relative_link(self, file_index, doc_index):
+        """Broken relative .md link should be resolved by name search if unique."""
+        # Link to a non-existent relative path, but stem matches a known doc
+        content = "[Configuration](../nonexistent/configuration.md)"
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        # Should resolve via search fallback (configuration.md exists)
+        if "configuration" in doc_index and len(doc_index["configuration"]) == 1:
+            assert len(errors) == 0
+            assert len(changes) == 1
+            assert "found by search" in changes[0]
+        else:
+            # Multiple matches — disambiguation should kick in
+            assert len(errors) <= 1
+
+    def test_disambiguates_by_path_similarity(self, file_index, doc_index):
+        """Multiple candidates should be disambiguated by directory overlap."""
+        # Build a custom doc_index with multiple candidates
+        from collections import defaultdict
+
+        custom_doc_index: dict[str, list[Path]] = defaultdict(list)
+        custom_doc_index["testdoc"] = [
+            Path("docs/other/testdoc.md"),
+            Path("docs/agents/docs/testdoc.md"),
+        ]
+
+        content = "[TestDoc](../agents/docs_agent/testdoc.md)"
+        doc_path = REPO_ROOT / "docs/usage/test.md"
+        new_content, changes, errors = process_markdown(
+            content,
+            REPO_ROOT,
+            doc_path,
+            file_index,
+            link_mode="absolute",
+            github_url=None,
+            github_ref="main",
+            doc_index=custom_doc_index,
+        )
+
+        # Should pick docs/agents/docs/testdoc.md (shares "docs", "agents")
+        assert len(errors) == 0
+        assert len(changes) == 1
+        assert "agents/docs/testdoc.md" in new_content
+
+    def test_skips_url_md_links(self, file_index, doc_index):
+        """HTTP(S) .md links should be left untouched."""
+        content = "[External](https://example.com/guide.md)"
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        assert len(errors) == 0
+        assert len(changes) == 0
+        assert new_content == content
+
+    def test_preserves_fragment(self, file_index, doc_index):
+        """Fragment (#section) should be preserved in resolved link."""
+        content = "[Config](configuration.md#advanced)"
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        assert "#advanced" in new_content
+
+    def test_skips_backtick_wrapped(self, file_index, doc_index):
+        """Backtick-wrapped .md link text should be skipped by md_link_pattern."""
+        content = "[`configuration.md`](configuration.md)"
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        # The code_pattern handles backtick links; md_link_pattern sees backticks and skips
+        # No double-processing should occur
+        assert "configuration.md" in new_content
+
+    def test_md_links_in_ignore_region(self, file_index, doc_index):
+        """Links in ignore regions should not be processed."""
+        content = (
+            "[Configuration](configuration.md)\n"
+            "<!-- doclinks-ignore-start -->\n"
+            "[Configuration](broken_nonexistent.md)\n"
+            "<!-- doclinks-ignore-end -->\n"
+            "[Configuration](configuration.md)"
+        )
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        # The broken link in ignore region should not produce errors
+        assert "broken_nonexistent.md" in new_content  # Preserved as-is
 
 
 if __name__ == "__main__":

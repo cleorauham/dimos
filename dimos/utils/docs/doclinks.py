@@ -151,6 +151,35 @@ def extract_other_backticks(line: str, file_ref: str) -> list[str]:
     return [m for m in matches if m != file_ref and not m.endswith(".py") and "/" not in m]
 
 
+def score_path_similarity(candidate: Path, original_path: str) -> int:
+    """Score how well a candidate matches the original link's path.
+
+    Counts common directory names plus a bonus for matching filename.
+    Higher = better match.
+    """
+    orig = Path(original_path)
+    orig_dirs = set(orig.parent.parts)
+    cand_dirs = set(candidate.parent.parts)
+    score = len(orig_dirs & cand_dirs)
+    if candidate.name == orig.name:
+        score += 1
+    return score
+
+
+def pick_best_candidate(candidates: list[Path], original_path: str) -> Path | None:
+    """Pick the best candidate by path similarity. Returns None if tied."""
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    scored = sorted(candidates, key=lambda c: score_path_similarity(c, original_path), reverse=True)
+    top = score_path_similarity(scored[0], original_path)
+    second = score_path_similarity(scored[1], original_path)
+    if top > second:
+        return scored[0]
+    return None  # Ambiguous tie
+
+
 def generate_link(
     rel_path: Path,
     root: Path,
@@ -254,6 +283,9 @@ def process_markdown(
     # Pattern 2: [Text](.md) - doc file links
     doc_pattern = r"\[([^\]]+)\]\(\.md\)"
 
+    # Pattern 3: [Text](path.md) or [Text](path.md#fragment) - existing .md links to verify/resolve
+    md_link_pattern = r"\[([^\]]+)\]\(([^)]+\.md(?:#[^)]*)?)\)"
+
     def replace_code_match(match: re.Match[str]) -> str:
         file_ref = match.group(1)
         current_link = match.group(2)
@@ -341,15 +373,120 @@ def process_markdown(
 
         return new_match
 
+    def replace_md_link_match(match: re.Match[str]) -> str:
+        """Verify and resolve relative .md links to absolute paths."""
+        link_text = match.group(1)
+        raw_link = match.group(2)
+        full_match = match.group(0)
+
+        # Skip backtick-wrapped text (code links handled by code_pattern)
+        if link_text.startswith("`") and link_text.endswith("`"):
+            return full_match
+
+        # Skip URLs
+        if raw_link.startswith(("http://", "https://")):
+            return full_match
+
+        # Extract fragment if present
+        fragment = ""
+        link_path = raw_link
+        if "#" in raw_link:
+            link_path, frag = raw_link.split("#", 1)
+            fragment = "#" + frag
+
+        # Skip bare .md placeholder (handled by doc_pattern)
+        if link_path == ".md":
+            return full_match
+
+        # Already absolute link - validate only
+        if link_path.startswith("/"):
+            target = root / link_path.lstrip("/")
+            if target.exists():
+                return full_match  # Valid, leave as-is
+            # Broken absolute link - try search
+            stem = Path(link_path).stem.lower()
+            if stem == "index":
+                stem = Path(link_path).parent.name.lower()
+            candidates = doc_index.get(stem, []) if doc_index else []
+            if len(candidates) == 1:
+                resolved = candidates[0]
+            elif len(candidates) > 1:
+                resolved = pick_best_candidate(candidates, link_path.lstrip("/"))
+            else:
+                resolved = None
+            if resolved is not None:
+                new_link = generate_link(
+                    resolved, root, doc_path, link_mode, github_url, github_ref, fragment
+                )
+                changes.append(f"  {link_text}: {raw_link} -> {new_link} (fixed broken link)")
+                return f"[{link_text}]({new_link})"
+            if len(candidates) > 1:
+                errors.append(
+                    f"Broken link '{raw_link}': multiple docs match '{stem}': "
+                    f"{[str(c) for c in candidates]}"
+                )
+            else:
+                errors.append(f"Broken link: '{raw_link}' does not exist")
+            return full_match
+
+        # Relative link - resolve from doc file's directory
+        doc_dir = doc_path.parent
+        resolved = (doc_dir / link_path).resolve()
+
+        try:
+            rel_to_root = resolved.relative_to(root)
+        except ValueError:
+            errors.append(f"Link '{raw_link}' resolves outside repo root")
+            return full_match
+
+        if resolved.exists():
+            # File exists - convert to appropriate link format
+            new_link = generate_link(
+                rel_to_root, root, doc_path, link_mode, github_url, github_ref, fragment
+            )
+            result = f"[{link_text}]({new_link})"
+            if result != full_match:
+                changes.append(f"  {link_text}: {raw_link} -> {new_link}")
+            return result
+        else:
+            # Target doesn't exist - try searching by doc name
+            stem = Path(link_path).stem.lower()
+            if stem == "index":
+                stem = Path(link_path).parent.name.lower()
+            candidates = doc_index.get(stem, []) if doc_index else []
+            if len(candidates) == 1:
+                resolved_doc = candidates[0]
+            elif len(candidates) > 1:
+                resolved_doc = pick_best_candidate(candidates, raw_link)
+            else:
+                resolved_doc = None
+            if resolved_doc is not None:
+                new_link = generate_link(
+                    resolved_doc, root, doc_path, link_mode, github_url, github_ref, fragment
+                )
+                changes.append(f"  {link_text}: {raw_link} -> {new_link} (found by search)")
+                return f"[{link_text}]({new_link})"
+            if len(candidates) > 1:
+                errors.append(
+                    f"Broken link '{raw_link}': multiple docs match '{stem}': "
+                    f"{[str(c) for c in candidates]}"
+                )
+            else:
+                errors.append(
+                    f"Broken link '{raw_link}': target not found, no doc matching '{stem}'"
+                )
+            return full_match
+
     # Split by ignore regions and only process non-ignored parts
     regions = split_by_ignore_regions(content)
     result_parts = []
 
     for region_content, should_process in regions:
         if should_process:
-            # Process code links first, then doc links
+            # Process code links first, then doc links, then .md link verification
             processed = re.sub(code_pattern, replace_code_match, region_content)
             processed = re.sub(doc_pattern, replace_doc_match, processed)
+            processed = re.sub(md_link_pattern, replace_md_link_match, processed)
             result_parts.append(processed)
         else:
             result_parts.append(region_content)
@@ -377,6 +514,7 @@ Finds [`filename.py`](...) patterns and resolves them to actual file paths.
 Also auto-links symbols: `Configurable` on same line adds #L<line> fragment.
 
 Supports doc-to-doc linking: [Modules](.md) resolves to modules.md or modules/index.md.
+Verifies existing .md links and fixes broken relative/absolute paths by searching docs.
 
 Usage:
   doclinks [options] <paths...>
