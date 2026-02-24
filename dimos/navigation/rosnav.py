@@ -185,7 +185,13 @@ class ROSNav(
     @rpc
     def start(self) -> None:
         self._running = True
+        # ROS transport setup (rclpy node + topic discovery) can take several
+        # seconds, which exceeds RPC_READY_TIMEOUT (3 s).  Do it in a background
+        # thread so start() returns immediately and the host considers the module
+        # ready without timing out.
+        threading.Thread(target=self._start_ros, daemon=True, name="ROSNavStartThread").start()
 
+    def _start_ros(self) -> None:
         # In Docker mode the host-side deploy() does not set ROS transports
         # (ROSTransport requires rclpy, only available inside the container).
         # Configure them here if they haven't been set externally.
