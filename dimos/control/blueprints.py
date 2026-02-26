@@ -534,12 +534,6 @@ coordinator_teleop_piper = control_coordinator(
             address="can0",
             auto_enable=True,
         ),
-        HardwareComponent(
-            hardware_id=make_gripper_joint("arm"),
-            hardware_type=HardwareType.GRIPPER,
-            joints=[make_gripper_joint("arm")],
-            parent_hardware_id="arm",
-        ),
     ],
     tasks=[
         TaskConfig(
@@ -550,7 +544,6 @@ coordinator_teleop_piper = control_coordinator(
             model_path=_PIPER_MODEL_PATH,
             ee_joint_id=6,
             hand="left",
-            gripper_joint=make_gripper_joint("arm"),
         ),
     ],
 ).transports(

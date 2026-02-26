@@ -290,11 +290,6 @@ class ConnectedTwistBase(ConnectedHardware):
 class ConnectedGripper(ConnectedHardware):
     """Runtime wrapper for a gripper attached to a manipulator.
 
-    Shares the parent manipulator's adapter but routes read/write
-    through gripper-specific adapter methods (read_gripper_position /
-    write_gripper_position).  Lifecycle (connect / disconnect) is owned
-    by the parent ConnectedHardware — disconnect() is a no-op here.
-
     Registered as a separate HardwareComponent with hardware_type=GRIPPER
     so the tick loop treats it uniformly alongside arm joints.
     """

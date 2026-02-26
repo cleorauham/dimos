@@ -154,8 +154,6 @@ class TeleopIKTask(BaseControlTask):
         self._initial_ee_pose: pinocchio.SE3 | None = None
         self._prev_primary: bool = False
 
-        # Gripper state — only active when config.gripper_joint is set.
-        # Starts at open position so the gripper doesn't unexpectedly close on engage.
         self._gripper_target: float = config.gripper_open_pos
 
         logger.info(
