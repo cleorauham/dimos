@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any
 
 from rich.text import Text
@@ -98,6 +99,7 @@ class ResourceSpyApp(App):  # type: ignore[type-arg]
         self._lcm = PickleLCM(autoconf=True)
         self._lock = threading.Lock()
         self._latest: dict[str, Any] | None = None
+        self._last_msg_time: float = 0.0
 
     def compose(self) -> ComposeResult:
         table: DataTable = DataTable(zebra_stripes=True, cursor_type=None)  # type: ignore[type-arg, arg-type]
@@ -131,26 +133,30 @@ class ResourceSpyApp(App):  # type: ignore[type-arg]
     def _on_msg(self, msg: dict[str, Any], _topic: str) -> None:
         with self._lock:
             self._latest = msg
+            self._last_msg_time = time.monotonic()
 
     def _refresh(self) -> None:
         with self._lock:
             data = self._latest
+            last_msg = self._last_msg_time
 
         if data is None:
             return
+
+        stale = (time.monotonic() - last_msg) > 2.0
 
         table = self.query_one(DataTable)
         table.clear(columns=False)
 
         coord = data.get("coordinator", {})
-        self._add_row(table, "coordinator", theme.BRIGHT_CYAN, coord, "—")
+        self._add_row(table, "coordinator", theme.BRIGHT_CYAN, coord, "—", stale)
 
         for w in data.get("workers", []):
             alive = w.get("alive", False)
             wid = w.get("worker_id", "?")
             role_style = theme.BRIGHT_GREEN if alive else theme.BRIGHT_RED
             modules = ", ".join(w.get("modules", [])) or "—"
-            self._add_row(table, f"worker {wid}", role_style, w, modules)
+            self._add_row(table, f"worker {wid}", role_style, w, modules, stale)
 
     @staticmethod
     def _add_row(
@@ -159,25 +165,37 @@ class ResourceSpyApp(App):  # type: ignore[type-arg]
         role_style: str,
         d: dict[str, Any],
         modules: str,
+        stale: bool,
     ) -> None:
+        dim = "#606060"
+        s = dim if stale else None  # override style when stale
         table.add_row(
-            Text(role, style=role_style),
-            Text(str(d.get("pid", "?")), style=theme.DIM),
-            _fmt_pct(d.get("cpu_percent", 0)),
-            _bar(d.get("cpu_percent", 0), 100),
-            _fmt_time(d.get("cpu_time_user", 0)),
-            _fmt_time(d.get("cpu_time_system", 0)),
-            _fmt_time(d.get("cpu_time_iowait", 0)),
-            _fmt_mb(d.get("pss_mb", 0)),
-            _fmt_mb(d.get("uss_mb", 0)),
-            _fmt_mb(d.get("rss_mb", 0)),
-            _fmt_mb(d.get("vms_mb", 0)),
-            Text(str(d.get("num_threads", 0)), style=theme.WHITE),
-            Text(str(d.get("num_children", 0)), style=theme.WHITE),
-            Text(str(d.get("num_fds", 0)), style=theme.WHITE),
-            _fmt_mb(d.get("io_read_mb", 0)),
-            _fmt_mb(d.get("io_write_mb", 0)),
-            Text(modules, style=theme.BRIGHT_BLUE),
+            Text(role, style=s or role_style),
+            Text(str(d.get("pid", "?")), style=s or theme.BRIGHT_BLACK),
+            Text(
+                f"{d.get('cpu_percent', 0):.0f}%",
+                style=s or _heat(min(d.get("cpu_percent", 0) / 100.0, 1.0)),
+            ),
+            _bar(d.get("cpu_percent", 0), 100) if not stale else Text("░" * 12, style=dim),
+            Text(_fmt_time(d.get("cpu_time_user", 0)).plain, style=s or theme.WHITE),
+            Text(_fmt_time(d.get("cpu_time_system", 0)).plain, style=s or theme.WHITE),
+            Text(_fmt_time(d.get("cpu_time_iowait", 0)).plain, style=s or theme.WHITE),
+            Text(_fmt_mb(d.get("pss_mb", 0)).plain, style=s or _fmt_mb(d.get("pss_mb", 0)).style),
+            Text(_fmt_mb(d.get("uss_mb", 0)).plain, style=s or _fmt_mb(d.get("uss_mb", 0)).style),
+            Text(_fmt_mb(d.get("rss_mb", 0)).plain, style=s or _fmt_mb(d.get("rss_mb", 0)).style),
+            Text(_fmt_mb(d.get("vms_mb", 0)).plain, style=s or _fmt_mb(d.get("vms_mb", 0)).style),
+            Text(str(d.get("num_threads", 0)), style=s or theme.WHITE),
+            Text(str(d.get("num_children", 0)), style=s or theme.WHITE),
+            Text(str(d.get("num_fds", 0)), style=s or theme.WHITE),
+            Text(
+                _fmt_mb(d.get("io_read_mb", 0)).plain,
+                style=s or _fmt_mb(d.get("io_read_mb", 0)).style,
+            ),
+            Text(
+                _fmt_mb(d.get("io_write_mb", 0)).plain,
+                style=s or _fmt_mb(d.get("io_write_mb", 0)).style,
+            ),
+            Text(modules, style=s or theme.BRIGHT_BLUE),
         )
 
 

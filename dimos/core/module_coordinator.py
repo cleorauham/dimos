@@ -105,7 +105,7 @@ class ModuleCoordinator(Resource):  # type: ignore[misc]
     def loop(
         self,
         resource_logger: ResourceLogger | None = None,
-        monitor_interval: float = 2.0,
+        monitor_interval: float = 0.5,
     ) -> None:
         _logger: ResourceLogger = resource_logger or LCMResourceLogger()
         coordinator_pid = os.getpid()
