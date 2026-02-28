@@ -47,7 +47,7 @@ class HardwareComponent:
         adapter_type: Adapter type ("mock", "xarm", "piper")
         address: Connection address - IP for TCP, port for CAN
         auto_enable: Whether to auto-enable servos
-        gripper_joints: Joints that use adapter gripper methods. Auto-appended to joints.
+        gripper_joints: Joints that use adapter gripper methods (separate from joints).
     """
 
     hardware_id: HardwareId
@@ -58,8 +58,10 @@ class HardwareComponent:
     auto_enable: bool = True
     gripper_joints: list[JointName] = field(default_factory=list)
 
-    def __post_init__(self) -> None:
-        self.joints.extend(self.gripper_joints)
+    @property
+    def all_joints(self) -> list[JointName]:
+        """All joints: arm joints + gripper joints."""
+        return self.joints + self.gripper_joints
 
 
 def make_gripper_joints(hardware_id: HardwareId) -> list[JointName]:

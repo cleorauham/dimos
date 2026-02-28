@@ -65,14 +65,9 @@ class ConnectedHardware:
 
         self._adapter = adapter
         self._component = component
-        self._joint_names = component.joints
-
-        # Gripper joints use adapter.read/write_gripper_position() instead of
-        # the array-based read/write_joint_positions().
-        self._gripper_joints: frozenset[str] = frozenset(component.gripper_joints)
-        self._arm_joint_names: list[JointName] = [
-            j for j in component.joints if j not in self._gripper_joints
-        ]
+        self._arm_joint_names: list[JointName] = list(component.joints)
+        self._gripper_joints: list[JointName] = list(component.gripper_joints)
+        self._joint_names: list[JointName] = component.all_joints
 
         # Track last commanded values for hold-last behavior
         self._last_commanded: dict[str, float] = {}
@@ -227,6 +222,10 @@ class ConnectedHardware:
         raise RuntimeError(
             f"Hardware {self.hardware_id} failed to read initial positions after retries"
         )
+
+    def _build_ordered_command(self) -> list[float]:
+        """Build ordered command list from last_commanded dict."""
+        return [self._last_commanded[name] for name in self._joint_names]
 
 
 class ConnectedTwistBase(ConnectedHardware):
