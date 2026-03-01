@@ -16,7 +16,7 @@ from collections.abc import Callable
 from functools import wraps
 import threading
 import time
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar, cast
 
 from .accumulators import Accumulator, LatestAccumulator
 
@@ -114,7 +114,7 @@ def limit(max_freq: float, accumulator: Accumulator | None = None):  # type: ign
     return decorator
 
 
-def simple_mcache(method: Callable) -> Callable:  # type: ignore[type-arg]
+def simple_mcache(method: Callable[..., _CacheReturn]) -> CachedMethod[_CacheReturn]:
     """
     Decorator to cache the result of a method call on the instance.
 
@@ -164,7 +164,7 @@ def simple_mcache(method: Callable) -> Callable:  # type: ignore[type-arg]
 
     getter.invalidate_cache = invalidate_cache  # type: ignore[attr-defined]
 
-    return getter
+    return cast("CachedMethod[_CacheReturn]", getter)
 
 
 def ttl_cache(seconds: float) -> Callable[[_F], _F]:
