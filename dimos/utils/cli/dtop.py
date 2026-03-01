@@ -201,7 +201,11 @@ class ResourceSpyApp(App[None]):
         if data is None:
             scroll.add_class("waiting")
             waiting = Panel(
-                Text("dtop waiting for stats…", style=theme.FOREGROUND, justify="center"),
+                Text(
+                    "use `dimos --dtop ...` to emit stats",
+                    style=theme.FOREGROUND,
+                    justify="center",
+                ),
                 border_style=theme.CYAN,
                 expand=False,
             )
