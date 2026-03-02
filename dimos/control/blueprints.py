@@ -30,6 +30,8 @@ Usage:
 
 from __future__ import annotations
 
+import os
+
 from dimos.control.components import (
     HardwareComponent,
     HardwareType,
@@ -45,6 +47,9 @@ from dimos.utils.data import LfsPath
 
 _PIPER_MODEL_PATH = LfsPath("piper_description/mujoco_model/piper_no_gripper_description.xml")
 _XARM6_MODEL_PATH = LfsPath("xarm_description/urdf/xarm6/xarm6.urdf")
+
+_ARM_IP = os.getenv("ARM_IP")
+_CAN_PORT = os.getenv("CAN_PORT", "can0")
 
 
 # =============================================================================
@@ -89,7 +94,7 @@ coordinator_xarm7 = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("arm", 7),
             adapter_type="xarm",
-            address="192.168.2.235",
+            address=_ARM_IP,
             auto_enable=True,
         ),
     ],
@@ -118,7 +123,7 @@ coordinator_xarm6 = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("arm", 6),
             adapter_type="xarm",
-            address="192.168.1.210",
+            address=_ARM_IP,
             auto_enable=True,
         ),
     ],
@@ -147,7 +152,7 @@ coordinator_piper = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("arm", 6),
             adapter_type="piper",
-            address="can0",
+            address=_CAN_PORT,
             auto_enable=True,
         ),
     ],
@@ -220,7 +225,7 @@ coordinator_dual_xarm = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("left_arm", 7),
             adapter_type="xarm",
-            address="192.168.2.235",
+            address=_ARM_IP,
             auto_enable=True,
         ),
         HardwareComponent(
@@ -228,7 +233,7 @@ coordinator_dual_xarm = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("right_arm", 6),
             adapter_type="xarm",
-            address="192.168.1.210",
+            address=_ARM_IP,
             auto_enable=True,
         ),
     ],
@@ -263,7 +268,7 @@ coordinator_piper_xarm = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("xarm_arm", 6),
             adapter_type="xarm",
-            address="192.168.1.210",
+            address=_ARM_IP,
             auto_enable=True,
         ),
         HardwareComponent(
@@ -271,7 +276,7 @@ coordinator_piper_xarm = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("piper_arm", 6),
             adapter_type="piper",
-            address="can0",
+            address=_CAN_PORT,
             auto_enable=True,
         ),
     ],
@@ -311,7 +316,7 @@ coordinator_teleop_xarm6 = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("arm", 6),
             adapter_type="xarm",
-            address="192.168.1.210",
+            address=_ARM_IP,
             auto_enable=True,
         ),
     ],
@@ -341,7 +346,7 @@ coordinator_velocity_xarm6 = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("arm", 6),
             adapter_type="xarm",
-            address="192.168.1.210",
+            address=_ARM_IP,
             auto_enable=True,
         ),
     ],
@@ -371,7 +376,7 @@ coordinator_combined_xarm6 = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("arm", 6),
             adapter_type="xarm",
-            address="192.168.1.210",
+            address=_ARM_IP,
             auto_enable=True,
         ),
     ],
@@ -445,7 +450,7 @@ coordinator_cartesian_ik_piper = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("arm", 6),
             adapter_type="piper",
-            address="can0",
+            address=_CAN_PORT,
             auto_enable=True,
         ),
     ],
@@ -484,7 +489,7 @@ coordinator_teleop_xarm6 = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("arm", 6),
             adapter_type="xarm",
-            address="192.168.1.210",
+            address=_ARM_IP,
             auto_enable=True,
         ),
     ],
@@ -520,7 +525,7 @@ coordinator_teleop_piper = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("arm", 6),
             adapter_type="piper",
-            address="can0",
+            address=_CAN_PORT,
             auto_enable=True,
         ),
     ],
@@ -556,7 +561,7 @@ coordinator_teleop_dual = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("xarm_arm", 6),
             adapter_type="xarm",
-            address="192.168.1.210",
+            address=_ARM_IP,
             auto_enable=True,
         ),
         HardwareComponent(
@@ -564,7 +569,7 @@ coordinator_teleop_dual = control_coordinator(
             hardware_type=HardwareType.MANIPULATOR,
             joints=make_joints("piper_arm", 6),
             adapter_type="piper",
-            address="can0",
+            address=_CAN_PORT,
             auto_enable=True,
         ),
     ],
