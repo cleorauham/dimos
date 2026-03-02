@@ -29,8 +29,11 @@ from reactivex.subject import Subject
 from dimos import spec
 from dimos.agents.annotation import skill
 from dimos.core import DimosCluster, In, LCMTransport, Module, Out, rpc
-from dimos.core.module import ModuleConfig
-from dimos.core.transport import ROSTransport
+from dimos.core._dask_exports import DimosCluster
+from dimos.core.core import rpc
+from dimos.core.module import Module, ModuleConfig
+from dimos.core.stream import In, Out
+from dimos.core.transport import LCMTransport, ROSTransport
 from dimos.msgs.geometry_msgs import (
     PoseStamped,
     Quaternion,
