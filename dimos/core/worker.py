@@ -25,6 +25,7 @@ from dimos.utils.sequential_ids import SequentialIds
 
 if TYPE_CHECKING:
     from dimos.core.module import ModuleBase
+    from dimos.core.rpc_client import RPCClient
 
 logger = setup_logger()
 
@@ -139,7 +140,7 @@ _worker_ids = SequentialIds()
 _module_ids = SequentialIds()
 
 
-class Worker:
+class WorkerPython:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._modules: dict[int, Actor] = {}
@@ -189,7 +190,7 @@ class Worker:
         module_class: type[ModuleBase],
         global_config: GlobalConfig = global_config,
         kwargs: dict[str, Any] | None = None,
-    ) -> Actor:
+    ) -> "RPCClient":
         if self._conn is None:
             raise RuntimeError("Worker process not started")
 
@@ -222,7 +223,9 @@ class Worker:
             worker_id=self._worker_id,
             module_id=module_id,
         )
-        return actor
+        from dimos.core.rpc_client import RPCClient
+
+        return RPCClient(actor, module_class)
 
     def shutdown(self) -> None:
         if self._conn is not None:

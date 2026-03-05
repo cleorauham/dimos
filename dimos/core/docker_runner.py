@@ -21,6 +21,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from typing import TYPE_CHECKING, Any
@@ -30,7 +31,6 @@ from dimos.core.module import Module, ModuleConfig
 from dimos.core.rpc_client import RpcCall
 from dimos.protocol.rpc import LCMRPC
 from dimos.utils.logging_config import setup_logger
-from dimos.visualization.rerun.bridge import RERUN_GRPC_PORT, RERUN_WEB_PORT
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -182,7 +182,7 @@ class DockerModule:
         self.remote_name = module_class.__name__
         self._container_name = (
             config.docker_container_name
-            or f"dimos_{module_class.__name__.lower()}_{os.getpid()}_{int(time.time())}"
+            or f"dimos_{module_class.__name__.lower()}"
         )
 
         # RPC setup
@@ -216,13 +216,43 @@ class DockerModule:
 
         cfg = self._config
 
-        # Prevent accidental kill of running container with same name
+        # Handle existing container with the same name
         if _is_container_running(cfg, self._container_name):
-            raise RuntimeError(
-                f"Container '{self._container_name}' already running. "
-                "Choose a different container_name or stop the existing container."
-            )
-        _remove_container(cfg, self._container_name)
+            if sys.stdin.isatty():
+                import typer
+
+                restart = typer.confirm(
+                    f"Container '{self._container_name}' is already running. Restart it?",
+                    default=True,
+                )
+            else:
+                # Non-interactive: default to restart
+                logger.info(
+                    f"Container '{self._container_name}' already running, "
+                    "restarting (non-interactive mode)"
+                )
+                restart = True
+
+            if restart:
+                logger.info(f"Stopping existing container: {self._container_name}")
+                _run(
+                    [_docker_bin(cfg), "stop", self._container_name],
+                    timeout=DOCKER_STOP_TIMEOUT,
+                )
+                _remove_container(cfg, self._container_name)
+            else:
+                # Connect to the existing container
+                logger.info(f"Connecting to existing container: {self._container_name}")
+                self.rpc.start()
+                self._running = True
+                try:
+                    self._wait_for_ready()
+                except Exception:
+                    self.stop()
+                    raise
+                return
+        else:
+            _remove_container(cfg, self._container_name)
 
         cmd = self._build_docker_run_command()
         logger.info(f"Starting docker container: {self._container_name}")
@@ -234,7 +264,11 @@ class DockerModule:
 
         self.rpc.start()
         self._running = True
-        self._wait_for_ready()
+        try:
+            self._wait_for_ready()
+        except Exception:
+            self.stop()
+            raise
 
     def stop(self) -> None:
         """Gracefully stop the Docker container and clean up resources."""
@@ -278,6 +312,10 @@ class DockerModule:
             f"{self.remote_name}/configure_stream", ([stream_name, str(topic)], {})
         )
         return bool(result)
+
+    def get_rpc_method_names(self) -> list[str]:
+        """Return RPC method names locally (avoids unnecessary RPC round-trip)."""
+        return self.rpc_calls
 
     def __getattr__(self, name: str) -> Any:
         if name in self.rpcs:
@@ -345,6 +383,8 @@ class DockerModule:
         if cfg.docker_network is None and cfg.docker_network_mode == "host":
             return
         # Non-host network: map Rerun ports + any custom ports
+        from dimos.visualization.rerun.bridge import RERUN_GRPC_PORT, RERUN_WEB_PORT
+
         for port in (RERUN_GRPC_PORT, RERUN_WEB_PORT):
             cmd.extend(["-p", f"{port}:{port}/tcp"])
         for host_port, container_port, proto in cfg.docker_ports:
@@ -399,7 +439,15 @@ class DockerModule:
         if cfg.docker_command:
             return list(cfg.docker_command)
 
-        module_path = f"{self._module_class.__module__}.{self._module_class.__name__}"
+        mod_name = self._module_class.__module__
+        if mod_name == "__main__":
+            # __main__ is not importable inside Docker; resolve to dotted path
+            import sys, pathlib
+            main_file = getattr(sys.modules.get("__main__"), "__file__", None)
+            if main_file:
+                rel = pathlib.Path(main_file).resolve().relative_to(pathlib.Path.cwd().resolve())
+                mod_name = str(rel.with_suffix("")).replace("/", ".").replace("\\", ".")
+        module_path = f"{mod_name}.{self._module_class.__name__}"
         # Filter out docker-specific kwargs (paths, etc.) - only pass module config
         kwargs = {"config": _extract_module_config(cfg)}
         payload = {"module_path": module_path, "args": list(self._args), "kwargs": kwargs}

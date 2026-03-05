@@ -15,21 +15,37 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from dimos.core.global_config import GlobalConfig
 from dimos.core.module import ModuleBase
 from dimos.core.rpc_client import RPCClient
-from dimos.core.worker import Worker
+from dimos.core.worker import WorkerPython
+from dimos.core.docker_runner import is_docker_module
+from dimos.core.worker_docker import WorkerDocker
 from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger()
 
 
+@runtime_checkable
+class Worker(Protocol):
+    """Common interface for all worker types (process-based and Docker)."""
+
+    @property
+    def module_count(self) -> int: ...
+    def reserve_slot(self) -> None: ...
+    def deploy_module(
+        self, module_class: type[ModuleBase], global_config: GlobalConfig, kwargs: dict[str, Any] | None = None
+    ) -> RPCClient: ...
+    def shutdown(self) -> None: ...
+
+
 class WorkerManager:
     def __init__(self, n_workers: int = 2) -> None:
         self._n_workers = n_workers
-        self._workers: list[Worker] = []
+        self._workers: list[WorkerPython] = []
+        self._docker_workers: list[WorkerDocker] = []
         self._closed = False
         self._started = False
 
@@ -38,12 +54,22 @@ class WorkerManager:
             return
         self._started = True
         for _ in range(self._n_workers):
-            worker = Worker()
+            worker = WorkerPython()
             worker.start_process()
             self._workers.append(worker)
         logger.info("Worker pool started.", n_workers=self._n_workers)
 
-    def _select_worker(self) -> Worker:
+    def _select_worker(self, module_class: type[ModuleBase]) -> Worker:
+        """Pick the right worker for a module: docker worker or least-loaded process worker."""
+        if is_docker_module(module_class):
+            docker_worker = WorkerDocker()
+            self._docker_workers.append(docker_worker)
+            return docker_worker
+
+        # Auto-start process workers on first regular module
+        if not self._started:
+            self.start()
+
         return min(self._workers, key=lambda w: w.module_count)
 
     def deploy(
@@ -52,13 +78,8 @@ class WorkerManager:
         if self._closed:
             raise RuntimeError("WorkerManager is closed")
 
-        # Auto-start for backward compatibility
-        if not self._started:
-            self.start()
-
-        worker = self._select_worker()
-        actor = worker.deploy_module(module_class, global_config, kwargs=kwargs)
-        return RPCClient(actor, module_class)
+        worker = self._select_worker(module_class)
+        return worker.deploy_module(module_class, global_config, kwargs=kwargs)
 
     def deploy_parallel(
         self, module_specs: list[tuple[type[ModuleBase], GlobalConfig, dict[str, Any]]]
@@ -66,33 +87,27 @@ class WorkerManager:
         if self._closed:
             raise RuntimeError("WorkerManager is closed")
 
-        # Auto-start for backward compatibility
-        if not self._started:
-            self.start()
-
-        # Pre-assign workers sequentially (so least-loaded accounting is
-        # correct), then deploy concurrently via threads. The per-worker lock
-        # serializes deploys that land on the same worker process.
+        # Assign each module to a worker, reserving slots for load balancing
         assignments: list[tuple[Worker, type[ModuleBase], GlobalConfig, dict[str, Any]]] = []
         for module_class, global_config, kwargs in module_specs:
-            worker = self._select_worker()
+            worker = self._select_worker(module_class)
             worker.reserve_slot()
             assignments.append((worker, module_class, global_config, kwargs))
 
+        # Deploy all modules concurrently
         def _deploy(
             item: tuple[Worker, type[ModuleBase], GlobalConfig, dict[str, Any]],
         ) -> RPCClient:
-            worker, module_class, args, kwargs = item
-            actor = worker.deploy_module(module_class, global_config=global_config, kwargs=kwargs)
-            return RPCClient(actor, module_class)
+            worker, module_class, global_config, kwargs = item
+            return worker.deploy_module(module_class, global_config, kwargs=kwargs)
 
-        with ThreadPoolExecutor(max_workers=len(assignments)) as pool:
+        with ThreadPoolExecutor(max_workers=max(len(assignments), 1)) as pool:
             results = list(pool.map(_deploy, assignments))
 
         return results
 
     @property
-    def workers(self) -> list[Worker]:
+    def workers(self) -> list[WorkerPython]:
         return list(self._workers)
 
     def close_all(self) -> None:
@@ -102,12 +117,18 @@ class WorkerManager:
 
         logger.info("Shutting down all workers...")
 
+        for worker in reversed(self._docker_workers):
+            try:
+                worker.shutdown()
+            except Exception as e:
+                logger.error(f"Error shutting down docker worker: {e}", exc_info=True)
+        self._docker_workers.clear()
+
         for worker in reversed(self._workers):
             try:
                 worker.shutdown()
             except Exception as e:
                 logger.error(f"Error shutting down worker: {e}", exc_info=True)
-
         self._workers.clear()
 
         logger.info("All workers shut down")

@@ -13,13 +13,17 @@
 # limitations under the License.
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
 from dimos.core.core import rpc
+from dimos.core.docker_runner import DockerModuleConfig, is_docker_module
 from dimos.core.global_config import global_config
 from dimos.core.module import Module
+from dimos.core.rpc_client import RPCClient
 from dimos.core.stream import In, Out
+from dimos.core.worker_docker import DockerRPCClient, WorkerDocker
 from dimos.core.worker_manager import WorkerManager
 from dimos.msgs.geometry_msgs import Vector3
 
@@ -240,3 +244,78 @@ def test_worker_pool_modules_share_workers(create_worker_manager):
 
     module1.stop()
     module2.stop()
+
+
+# ---------------------------------------------------------------------------
+# Docker module deployment smoke tests (no Docker required)
+# ---------------------------------------------------------------------------
+
+
+class FakeDockerModuleConfig(DockerModuleConfig):
+    docker_image: str = "fake:latest"
+
+
+class FakeDockerModule(Module):
+    default_config = FakeDockerModuleConfig
+
+    @rpc
+    def start(self) -> None:
+        pass
+
+    @rpc
+    def do_something(self) -> str:
+        return "ok"
+
+
+def test_is_docker_module_detection():
+    """Modules with DockerModuleConfig-based default_config are detected."""
+    assert is_docker_module(FakeDockerModule) is True
+    assert is_docker_module(SimpleModule) is False
+
+
+def test_docker_module_routes_to_docker_worker():
+    """deploy() routes Docker modules through WorkerDocker, not regular Workers."""
+    manager = WorkerManager(n_workers=1)
+    try:
+        with patch.object(WorkerDocker, "deploy_module") as mock_deploy:
+            from unittest.mock import MagicMock
+
+            fake_dm = MagicMock()
+            fake_dm.rpc = MagicMock()
+            fake_dm._unsub_fns = []
+            fake_client = DockerRPCClient(fake_dm, FakeDockerModule)
+            mock_deploy.return_value = fake_client
+
+            result = manager.deploy(FakeDockerModule, global_config, {})
+
+            mock_deploy.assert_called_once_with(
+                FakeDockerModule, global_config, kwargs={}
+            )
+            assert isinstance(result, DockerRPCClient)
+            assert isinstance(result, RPCClient)
+    finally:
+        manager.close_all()
+
+
+def test_docker_module_not_in_deploy_parallel_regular_path():
+    """deploy_parallel() separates Docker modules from regular ones."""
+    manager = WorkerManager(n_workers=1)
+    try:
+        with patch.object(WorkerDocker, "deploy_module") as mock_docker:
+            from unittest.mock import MagicMock
+
+            fake_dm = MagicMock()
+            fake_dm.rpc = MagicMock()
+            fake_dm._unsub_fns = []
+            fake_client = DockerRPCClient(fake_dm, FakeDockerModule)
+            mock_docker.return_value = fake_client
+
+            results = manager.deploy_parallel([
+                (FakeDockerModule, global_config, {}),
+            ])
+
+            assert len(results) == 1
+            mock_docker.assert_called_once()
+            assert isinstance(results[0], DockerRPCClient)
+    finally:
+        manager.close_all()
