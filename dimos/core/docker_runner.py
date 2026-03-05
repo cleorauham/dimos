@@ -186,9 +186,9 @@ class DockerModule(ModuleProxy):
         self._kwargs = kwargs
         self._running = False
         self.remote_name = module_class.__name__
-        self._container_name = config.docker_container_name or self._default_container_name(
-            module_class, config
-        )
+        # Derive container name from image name: "my-registry/foo:v2" → "dimos_foo"
+        image_base = config.docker_image.rsplit(":", 1)[0].rsplit("/", 1)[-1]
+        self._container_name = config.docker_container_name or f"dimos_{image_base}"
 
         self.rpc = LCMRPC()
         self.rpcs = set(module_class.rpcs.keys())  # type: ignore[attr-defined]
@@ -238,16 +238,6 @@ class DockerModule(ModuleProxy):
             with suppress(Exception):
                 self.stop()
             raise
-
-    @staticmethod
-    def _default_container_name(module_class: type[Module], config: DockerModuleConfig) -> str:
-        import hashlib
-
-        name = module_class.__name__.lower()
-        path_hash = hashlib.sha256(
-            str(config.docker_file.resolve()).encode()  # type: ignore[union-attr]
-        ).hexdigest()[:12]
-        return f"dimos_{name}_{path_hash}"
 
     def get_rpc_method_names(self) -> list[str]:
         return self.rpc_calls
