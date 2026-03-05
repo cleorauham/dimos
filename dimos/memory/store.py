@@ -76,6 +76,10 @@ class Session(ABC):
         """Create a stored stream from a transform pipeline."""
 
     @abstractmethod
+    def resolve_parent_stream(self, name: str) -> str | None:
+        """Return the direct parent stream name, or None if no lineage exists."""
+
+    @abstractmethod
     def resolve_lineage_chain(self, source: str, target: str) -> tuple[str, ...]:
         """Return intermediate tables in the parent_id chain from source to target.
 

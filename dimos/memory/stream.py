@@ -236,6 +236,10 @@ class Stream(Generic[T]):
 
         source_table = backend.stream_name
         target_table = target_backend.stream_name
+
+        if source_table == target_table:
+            return self  # type: ignore[return-value]
+
         hops = session.resolve_lineage_chain(source_table, target_table)
 
         return target._with_filter(
@@ -309,7 +313,12 @@ class EmbeddingStream(Stream[T]):
         query: Embedding | list[float],
         *,
         k: int,
-    ) -> EmbeddingStream[T]:
+    ) -> Stream[Any]:
+        """Search by vector similarity.
+
+        Auto-projects to the source stream when lineage exists, so results
+        contain the source data (e.g. Images) rather than Embedding objects.
+        """
         from dimos.models.embedding.base import Embedding as EmbeddingCls
 
         if isinstance(query, EmbeddingCls):
@@ -317,11 +326,20 @@ class EmbeddingStream(Stream[T]):
         else:
             vec = list(query)
         clone = self._with_filter(EmbeddingSearchFilter(vec, k))
-        # Preserve EmbeddingStream type
-        es: EmbeddingStream[T] = EmbeddingStream(
+        filtered: EmbeddingStream[T] = EmbeddingStream(
             backend=clone._backend, query=clone._query, session=clone._session
         )
-        return es
+
+        # Auto-project to source stream when lineage exists
+        session = filtered._session
+        backend = filtered._backend
+        if session is not None and backend is not None:
+            parent_name = session.resolve_parent_stream(backend.stream_name)
+            if parent_name is not None:
+                source = session.stream(parent_name)
+                return filtered.project_to(source)
+
+        return filtered
 
     def fetch(self) -> list[EmbeddingObservation]:  # type: ignore[override]
         backend = self._require_backend()

@@ -89,7 +89,7 @@ for query_text in queries:
 
     slug = query_text.replace(" ", "_")[:30]
     for rank, result in enumerate(results):
-        # .data auto-projects to parent image via parent_id lineage
+        # search_embedding auto-projects to source images
         fname = OUT_DIR / f"{slug}_{rank + 1}_id{result.id}_ts{result.ts:.0f}.jpg"
         result.data.save(str(fname))
         print(f"  [{rank + 1}] id={result.id} ts={result.ts:.2f} → {fname.name}")

@@ -307,7 +307,6 @@ class TestEmbeddingStream:
             device = "cpu"
 
             def embed(self, *imgs: Image) -> Embedding | list[Embedding]:  # type: ignore[override]
-                # Return a fake embedding based on mean pixel value
                 results = []
                 for img in imgs:
                     val = float(img.data.mean()) / 255.0
@@ -326,9 +325,10 @@ class TestEmbeddingStream:
         emb_stream = s.transform(EmbeddingTransformer(FakeEmbedder())).store("cam_embeddings")
         assert emb_stream.count() == 2
 
-        # Search by vector
+        # Search auto-projects to source images
         results = emb_stream.search_embedding([0.5, 0.5, 0.0, 0.0], k=1).fetch()
         assert len(results) == 1
+        assert _img_close(results[0].data, images[0]) or _img_close(results[0].data, images[1])
 
 
 class TestListStreams:
@@ -468,8 +468,8 @@ class TestIteration:
 
 
 class TestProjectTo:
-    def test_single_hop(self, session: SqliteSession, images: list[Image]) -> None:
-        """project_to follows parent_id one hop: embeddings → images."""
+    def test_search_auto_projects(self, session: SqliteSession, images: list[Image]) -> None:
+        """search_embedding auto-projects to source stream."""
 
         class FakeEmbedder(EmbeddingModel):
             device = "cpu"
@@ -492,22 +492,21 @@ class TestProjectTo:
         embs = imgs.transform(EmbeddingTransformer(FakeEmbedder())).store("pt_embs")
         assert embs.count() == 3
 
-        # Search for top-2, then project back to images
-        results = embs.search_embedding([0.5, 0.5, 0.0], k=2).project_to(imgs)
-        projected = results.fetch()
+        # search_embedding auto-projects — results are Images, not Embeddings
+        projected = embs.search_embedding([0.5, 0.5, 0.0], k=2).fetch()
         assert len(projected) == 2
-        # Projected observations have image data, not embeddings
         for obs in projected:
+            assert not isinstance(obs, EmbeddingObservation)
             assert (
                 _img_close(obs.data, images[0])
                 or _img_close(obs.data, images[1])
                 or _img_close(obs.data, images[2])
             )
 
-    def test_project_to_with_chained_filter(
+    def test_search_auto_projects_chainable(
         self, session: SqliteSession, images: list[Image]
     ) -> None:
-        """project_to result is a chainable Stream — further filters work."""
+        """Auto-projected search results support further chaining."""
 
         class FakeEmbedder(EmbeddingModel):
             device = "cpu"
@@ -529,14 +528,40 @@ class TestProjectTo:
 
         embs = imgs.transform(EmbeddingTransformer(FakeEmbedder())).store("ptc_embs")
 
-        # Project all embeddings to images, then filter by time
+        # Chain time filter after auto-projected search
+        results = embs.search_embedding([0.5, 0.5, 0.0], k=10).after(3.0).fetch()
+        assert all(r.ts is not None and r.ts > 3.0 for r in results)
+
+    def test_explicit_project_to(self, session: SqliteSession, images: list[Image]) -> None:
+        """Explicit project_to works for non-search cases."""
+
+        class FakeEmbedder(EmbeddingModel):
+            device = "cpu"
+
+            def embed(self, *imgs: Image) -> Embedding | list[Embedding]:  # type: ignore[override]
+                results = []
+                for img in imgs:
+                    val = float(img.data.mean()) / 255.0
+                    results.append(Embedding(np.array([val, 1.0 - val, 0.0], dtype=np.float32)))
+                return results if len(results) > 1 else results[0]
+
+            def embed_text(self, *texts: str) -> Embedding | list[Embedding]:
+                raise NotImplementedError
+
+        imgs = session.stream("pte_images", Image)
+        imgs.append(images[0], ts=1.0)
+        imgs.append(images[1], ts=5.0)
+        imgs.append(images[2], ts=10.0)
+
+        embs = imgs.transform(EmbeddingTransformer(FakeEmbedder())).store("pte_embs")
+
+        # Explicit project_to without search — project all embeddings to images
         projected = embs.project_to(imgs).after(3.0)
         results = projected.fetch()
-        # Only images with ts > 3.0 should remain
         assert all(r.ts is not None and r.ts > 3.0 for r in results)
 
     def test_two_hop(self, session: SqliteSession, images: list[Image]) -> None:
-        """project_to walks multi-hop lineage: embeddings → filtered → raw."""
+        """search_embedding auto-projects to direct parent, then project_to for second hop."""
 
         class FakeEmbedder(EmbeddingModel):
             device = "cpu"
@@ -556,20 +581,19 @@ class TestProjectTo:
         raw.append(images[1], ts=2.0)
         raw.append(images[2], ts=3.0)
 
-        # Passthrough transform to create an intermediate stream
         mid = raw.transform(lambda img: img).store("th_mid", Image)
         assert mid.count() == 3
 
         embs = mid.transform(EmbeddingTransformer(FakeEmbedder())).store("th_embs")
         assert embs.count() == 3
 
-        # Two-hop: embeddings → mid → raw
+        # search auto-projects to mid (direct parent), then project_to(raw) for second hop
         projected = embs.search_embedding([0.5, 0.5, 0.0], k=2).project_to(raw)
         results = projected.fetch()
         assert len(results) == 2
 
     def test_count_on_projected(self, session: SqliteSession, images: list[Image]) -> None:
-        """count() works on projected streams."""
+        """count() works on auto-projected search results."""
 
         class FakeEmbedder(EmbeddingModel):
             device = "cpu"
@@ -589,8 +613,34 @@ class TestProjectTo:
         imgs.append(images[1], ts=2.0)
 
         embs = imgs.transform(EmbeddingTransformer(FakeEmbedder())).store("ptcnt_embs")
-        projected = embs.search_embedding([0.5, 0.5, 0.0], k=1).project_to(imgs)
-        assert projected.count() == 1
+        assert embs.search_embedding([0.5, 0.5, 0.0], k=1).count() == 1
+
+    def test_project_to_plain_transform(self, session: SqliteSession, images: list[Image]) -> None:
+        """project_to on a non-embedding derived stream (e.g., detections → images)."""
+        imgs = session.stream("ptplain_images", Image)
+        imgs.append(images[0], ts=1.0)
+        imgs.append(images[1], ts=2.0)
+        imgs.append(images[2], ts=3.0)
+
+        # Simulate a detection transform — extracts height as an "int" stream
+        heights = imgs.transform(lambda im: im.height).store("ptplain_heights", int)
+        assert heights.count() == 3
+
+        # Project heights back to source images
+        projected = heights.after(1.5).project_to(imgs)
+        results = projected.fetch()
+        assert len(results) == 2  # ts=2.0 and ts=3.0
+        for obs in results:
+            assert _img_close(obs.data, images[1]) or _img_close(obs.data, images[2])
+
+    def test_no_lineage_fallback(self, session: SqliteSession) -> None:
+        """search_embedding without lineage returns EmbeddingStream (no projection)."""
+        es = session.embedding_stream("pt_standalone", vec_dimensions=3)
+        es.append(Embedding(np.array([1.0, 0.0, 0.0], dtype=np.float32)), ts=1.0)
+
+        results = es.search_embedding([1.0, 0.0, 0.0], k=1).fetch()
+        assert len(results) == 1
+        assert isinstance(results[0], EmbeddingObservation)
 
 
 class TestStoreReopen:

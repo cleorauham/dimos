@@ -733,6 +733,12 @@ class SqliteSession(Session):
         self._streams: dict[str, Stream[Any]] = {}
         self._ensure_meta_table()
 
+    def resolve_parent_stream(self, name: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT parent_stream FROM _streams WHERE name = ?", (name,)
+        ).fetchone()
+        return row[0] if row and row[0] else None
+
     def resolve_lineage_chain(self, source: str, target: str) -> tuple[str, ...]:
         """Walk ``_streams.parent_stream`` from *source* toward *target*.
 
