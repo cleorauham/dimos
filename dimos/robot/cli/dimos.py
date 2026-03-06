@@ -147,6 +147,12 @@ def run(
     run_id = generate_run_id(blueprint_name)
     log_dir = LOG_BASE_DIR / run_id
 
+    # Route structured logs (main.jsonl) to the per-run directory.
+    # Workers inherit DIMOS_RUN_LOG_DIR env var via forkserver.
+    from dimos.utils.logging_config import set_run_log_dir
+
+    set_run_log_dir(log_dir)
+
     blueprint = autoconnect(*map(get_by_name, robot_types))
     coordinator = blueprint.build(cli_config_overrides=cli_config_overrides)
 
