@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import TYPE_CHECKING, Any
 
 from dimos.core.core import rpc
@@ -71,12 +70,8 @@ class Go2FleetConnection(GO2Connection):
             conn.start()
             self._extra_connections.append(conn)
 
-        # Parent starts primary robot, subscribes sensors
+        # Parent starts primary robot, subscribes sensors, calls standup() on all
         super().start()
-
-        for conn in self._extra_connections:
-            conn.standup()
-        time.sleep(3)
         for conn in self._extra_connections:
             conn.balance_stand()
             if self._global_config.disable_obstacle_avoidance:
@@ -99,20 +94,25 @@ class Go2FleetConnection(GO2Connection):
 
     @rpc
     def move(self, twist: Twist, duration: float = 0.0) -> bool:
-        return all(conn.move(twist, duration) for conn in self._all_connections)
+        results = [conn.move(twist, duration) for conn in self._all_connections]
+        return all(results)
 
     @rpc
     def standup(self) -> bool:
-        return all(conn.standup() for conn in self._all_connections)
+        results = [conn.standup() for conn in self._all_connections]
+        return all(results)
 
     @rpc
     def liedown(self) -> bool:
-        return all(conn.liedown() for conn in self._all_connections)
+        results = [conn.liedown() for conn in self._all_connections]
+        return all(results)
 
     @rpc
-    def publish_request(self, topic: str, data: dict[str, Any]) -> list[dict[Any, Any]]:
-        """Publish a request to all robots."""
-        return [conn.publish_request(topic, data) for conn in self._all_connections]
+    def publish_request(self, topic: str, data: dict[str, Any]) -> dict[Any, Any]:
+        """Publish a request to all robots, return primary's response."""
+        for conn in self._extra_connections:
+            conn.publish_request(topic, data)
+        return self.connection.publish_request(topic, data)
 
 
 go2_fleet_connection = Go2FleetConnection.blueprint
