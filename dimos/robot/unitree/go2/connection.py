@@ -84,7 +84,6 @@ def _camera_info_static() -> CameraInfo:
 
 
 def make_connection(ip: str | None, cfg: GlobalConfig) -> Go2ConnectionProtocol:
-    """Create a Go2 connection backend based on IP and config."""
     connection_type = cfg.unitree_connection_type
 
     if ip in ("fake", "mock", "replay") or connection_type == "replay":
@@ -94,7 +93,7 @@ def make_connection(ip: str | None, cfg: GlobalConfig) -> Go2ConnectionProtocol:
 
         return MujocoConnection(cfg)
     else:
-        assert ip is not None, "IP address must be provided for hardware connection"
+        assert ip is not None, "IP address must be provided"
         return UnitreeWebRTCConnection(ip)
 
 
@@ -245,6 +244,8 @@ class GO2Connection(Module, spec.Camera, spec.Pointcloud):
         self.connection.balance_stand()
         if self._global_config.disable_obstacle_avoidance:
             self.connection.disable_obstacle_avoidance()
+        
+        # self.record("go2_bigoffice")
 
     @rpc
     def stop(self) -> None:
