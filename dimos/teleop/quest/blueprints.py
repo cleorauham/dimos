@@ -18,12 +18,18 @@
 from dimos.control.blueprints import (
     coordinator_teleop_dual,
     coordinator_teleop_piper,
-    coordinator_teleop_xarm7,
+    coordinator_teleop_xarm6_demo,
 )
 from dimos.core.blueprints import autoconnect
 from dimos.core.transport import LCMTransport
 from dimos.msgs.geometry_msgs import PoseStamped
-from dimos.teleop.quest.quest_extensions import arm_teleop_module, visualizing_teleop_module
+from dimos.robot.unitree.g1.blueprints.basic.unitree_g1_basic import unitree_g1_basic
+from dimos.robot.unitree.go2.blueprints.basic.unitree_go2_basic import make_unitree_go2_fleet
+from dimos.teleop.quest.quest_extensions import (
+    arm_teleop_module,
+    combined_teleop_module,
+    visualizing_teleop_module,
+)
 from dimos.teleop.quest.quest_types import Buttons
 
 # -----------------------------------------------------------------------------
@@ -60,9 +66,9 @@ arm_teleop_visualizing = autoconnect(
 # Single XArm7 teleop: right controller -> xarm7
 # Usage: dimos run arm-teleop-xarm7
 
-arm_teleop_xarm7 = autoconnect(
+arm_teleop_xarm6 = autoconnect(
     arm_teleop_module(task_names={"right": "teleop_xarm"}),
-    coordinator_teleop_xarm7,
+    coordinator_teleop_xarm6_demo,
 ).transports(
     {
         ("right_controller_output", PoseStamped): LCMTransport(
@@ -88,16 +94,40 @@ arm_teleop_piper = autoconnect(
 )
 
 
-# Dual arm teleop: right -> piper, left -> xarm6 (TeleopIK)
+# Dual arm teleop: right controller → both xarm6 + piper
 arm_teleop_dual = autoconnect(
-    arm_teleop_module(task_names={"right": "teleop_piper", "left": "teleop_xarm"}),
+    arm_teleop_module(task_names={"right": "all"}),
     coordinator_teleop_dual,
 ).transports(
     {
         ("right_controller_output", PoseStamped): LCMTransport(
             "/coordinator/cartesian_command", PoseStamped
         ),
-        ("left_controller_output", PoseStamped): LCMTransport(
+        ("buttons", Buttons): LCMTransport("/teleop/buttons", Buttons),
+    }
+)
+
+
+# -----------------------------------------------------------------------------
+# Quest Teleop wired to Go2 (twist control)
+# -----------------------------------------------------------------------------
+
+# Quest controller orientation → Go2 twist (pitch→fwd, roll→strafe, yaw→turn)
+# Usage: dimos run quest-go2-teleop
+multi_robot_teleop = autoconnect(
+    combined_teleop_module(task_names={"right": "all"}),
+    coordinator_teleop_dual,
+    make_unitree_go2_fleet(
+        ips=[
+            # "10.0.0.209",
+            "10.0.0.102",
+            # "10.0.0.152",
+        ]
+    ),
+    unitree_g1_basic,
+).transports(
+    {
+        ("right_controller_output", PoseStamped): LCMTransport(
             "/coordinator/cartesian_command", PoseStamped
         ),
         ("buttons", Buttons): LCMTransport("/teleop/buttons", Buttons),
@@ -110,5 +140,6 @@ __all__ = [
     "arm_teleop_dual",
     "arm_teleop_piper",
     "arm_teleop_visualizing",
-    "arm_teleop_xarm7",
+    "arm_teleop_xarm6",
+    "multi_robot_teleop",
 ]

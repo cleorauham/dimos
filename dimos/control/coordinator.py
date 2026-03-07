@@ -98,6 +98,7 @@ class TaskConfig:
     model_path: str | Path | None = None
     ee_joint_id: int = 6
     hand: Literal["left", "right"] | None = None  # teleop_ik only
+    max_joint_delta_deg: float = 20.0  # teleop_ik safety limit
     # Teleop IK gripper specific
     gripper_joint: str | None = None
     gripper_open_pos: float = 0.0
@@ -338,6 +339,7 @@ class ControlCoordinator(Module[ControlCoordinatorConfig]):
                     gripper_joint=cfg.gripper_joint,
                     gripper_open_pos=cfg.gripper_open_pos,
                     gripper_closed_pos=cfg.gripper_closed_pos,
+                    max_joint_delta_deg=cfg.max_joint_delta_deg,
                 ),
             )
 
@@ -531,6 +533,7 @@ class ControlCoordinator(Module[ControlCoordinatorConfig]):
         """Route incoming PoseStamped to CartesianIKTask by task name.
 
         Uses frame_id as the target task name for routing.
+        If frame_id is "*" or "all", broadcasts to all tasks with on_cartesian_command.
         """
         task_name = msg.frame_id
         if not task_name:
@@ -540,6 +543,13 @@ class ControlCoordinator(Module[ControlCoordinatorConfig]):
         t_now = time.perf_counter()
 
         with self._task_lock:
+            # Broadcast to all cartesian tasks
+            if task_name in ("*", "all"):
+                for task in self._tasks.values():
+                    if hasattr(task, "on_cartesian_command"):
+                        task.on_cartesian_command(msg, t_now)
+                return
+
             task = self._tasks.get(task_name)
             if task is None:
                 logger.warning(f"Cartesian command for unknown task: {task_name}")

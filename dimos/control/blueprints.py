@@ -476,7 +476,7 @@ coordinator_cartesian_ik_piper = control_coordinator(
 # =============================================================================
 
 # Single XArm7 with TeleopIK
-coordinator_teleop_xarm7 = control_coordinator(
+coordinator_teleop_xarm6_demo = control_coordinator(
     tick_rate=100.0,
     publish_joint_state=True,
     joint_state_frame_id="coordinator",
@@ -484,9 +484,9 @@ coordinator_teleop_xarm7 = control_coordinator(
         HardwareComponent(
             hardware_id="arm",
             hardware_type=HardwareType.MANIPULATOR,
-            joints=make_joints("arm", 7),
+            joints=make_joints("arm", 6),
             adapter_type="xarm",
-            address="192.168.2.235",
+            address="192.168.1.210",
             auto_enable=True,
             gripper_joints=make_gripper_joints("arm"),
         ),
@@ -495,10 +495,10 @@ coordinator_teleop_xarm7 = control_coordinator(
         TaskConfig(
             name="teleop_xarm",
             type="teleop_ik",
-            joint_names=[f"arm_joint{i + 1}" for i in range(7)],
+            joint_names=[f"arm_joint{i + 1}" for i in range(6)],
             priority=10,
-            model_path=_XARM7_MODEL_PATH,
-            ee_joint_id=7,
+            model_path=_XARM6_MODEL_PATH,
+            ee_joint_id=6,
             hand="right",
             gripper_joint=make_gripper_joints("arm")[0],
             gripper_open_pos=0.85,  # xArm gripper range
@@ -582,7 +582,7 @@ coordinator_teleop_dual = control_coordinator(
             priority=10,
             model_path=_XARM6_MODEL_PATH,
             ee_joint_id=6,
-            hand="left",
+            hand="right",
         ),
         TaskConfig(
             name="teleop_piper",
@@ -592,6 +592,7 @@ coordinator_teleop_dual = control_coordinator(
             model_path=_PIPER_MODEL_PATH,
             ee_joint_id=6,
             hand="right",
+            max_joint_delta_deg=45.0,
         ),
     ],
 ).transports(
@@ -721,7 +722,6 @@ __all__ = [
     "coordinator_teleop_dual",
     "coordinator_teleop_piper",
     "coordinator_teleop_xarm6",
-    "coordinator_teleop_xarm7",
     "coordinator_velocity_xarm6",
     "coordinator_xarm6",
     "coordinator_xarm7",

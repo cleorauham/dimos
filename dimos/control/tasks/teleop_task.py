@@ -41,7 +41,6 @@ from dimos.control.task import (
 )
 from dimos.manipulation.planning.kinematics.pinocchio_ik import (
     PinocchioIK,
-    check_joint_delta,
     pose_to_se3,
 )
 from dimos.utils.logging_config import setup_logger
@@ -79,7 +78,7 @@ class TeleopIKTaskConfig:
     ee_joint_id: int
     priority: int = 10
     timeout: float = 0.5
-    max_joint_delta_deg: float = 5.0  # ~500°/s at 100Hz
+    max_joint_delta_deg: float = 20.0  # ~2000°/s at 100Hz
     hand: Literal["left", "right"] | None = None
     gripper_joint: str | None = None
     gripper_open_pos: float = 0.0
@@ -236,6 +235,10 @@ class TeleopIKTask(BaseControlTask):
                 delta_se3.rotation @ self._initial_ee_pose.rotation,
                 self._initial_ee_pose.translation + delta_se3.translation,
             )
+            # Clamp z: don't let robot go too low (z increases downward)
+            # logger.info(f"TeleopIKTask {self._name}: target z={target_pose.translation[2]:.4f}")
+            if target_pose.translation[2] < 0.320:
+                target_pose.translation[2] = 0.320
 
         # Get current joint positions for IK warm-start
         q_current = self._get_current_joints(state)
@@ -243,21 +246,40 @@ class TeleopIKTask(BaseControlTask):
             logger.debug(f"TeleopIKTask {self._name}: missing joint state for IK warm-start")
             return None
 
+        # Debug: log target pose and current joints before IK
+        logger.info(
+            f"TeleopIKTask {self._name}: target_pos={target_pose.translation.tolist()}, "
+            f"q_current(deg)={np.degrees(q_current).tolist()}"
+        )
+
         # Compute IK
         q_solution, converged, final_error = self._ik.solve(target_pose, q_current)
+
+        # Debug: log IK result
+        q_delta_deg = np.degrees(np.abs(q_solution - q_current))
+        logger.info(
+            f"TeleopIKTask {self._name}: q_solution(deg)={np.degrees(q_solution).tolist()}, "
+            f"converged={converged}, error={final_error:.6f}, "
+            f"delta(deg)={q_delta_deg.tolist()}"
+        )
+
         # Use the solution even if it didn't fully converge
         if not converged:
             logger.debug(
                 f"TeleopIKTask {self._name}: IK did not converge "
                 f"(error={final_error:.4f}), using partial solution"
             )
-        # Safety: reject if any joint would jump too far in one tick
-        if not check_joint_delta(q_solution, q_current, self._config.max_joint_delta_deg):
-            logger.warning(
-                f"TeleopIKTask {self._name}: joint delta exceeds "
-                f"{self._config.max_joint_delta_deg}°, rejecting solution"
+        # Safety: clamp joint deltas to max allowed per tick (instead of rejecting)
+        max_delta_rad = np.radians(self._config.max_joint_delta_deg)
+        joint_delta = q_solution - q_current
+        clamped = np.clip(joint_delta, -max_delta_rad, max_delta_rad)
+        if not np.allclose(joint_delta, clamped):
+            logger.debug(
+                f"TeleopIKTask {self._name}: clamping joint delta "
+                f"(max was {np.degrees(np.max(np.abs(joint_delta))):.1f}°, "
+                f"limit {self._config.max_joint_delta_deg}°)"
             )
-            return None
+            q_solution = q_current + clamped
 
         joint_names = list(self._joint_names_list)
         positions = q_solution.flatten().tolist()

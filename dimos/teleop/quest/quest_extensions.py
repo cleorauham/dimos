@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dimos.core.stream import Out
-from dimos.msgs.geometry_msgs import PoseStamped, TwistStamped
+from dimos.msgs.geometry_msgs import PoseStamped, Twist, TwistStamped, Vector3
 from dimos.teleop.quest.quest_teleop_module import Hand, QuestTeleopConfig, QuestTeleopModule
 from dimos.teleop.quest.quest_types import Buttons, QuestControllerState
 from dimos.teleop.utils.teleop_visualization import (
@@ -174,17 +174,73 @@ class VisualizingTeleopModule(ArmTeleopModule):
         return output_pose
 
 
+class SimpleQuestTeleop(QuestTeleopModule):
+    """Quest teleop for ground robots (e.g. Go2).
+
+    Maps Quest controller orientation to mobile base twist:
+        - pitch (tilt forward/back) → linear.x
+        - roll  (tilt left/right)   → linear.y
+        - yaw   (rotate)            → angular.z
+
+    Publishes cmd_vel: Out[Twist] for direct autoconnect wiring.
+    """
+
+    cmd_vel: Out[Twist]
+
+    def _publish_msg(self, hand: Hand, output_msg: PoseStamped) -> None:
+        if hand != Hand.LEFT:
+            return
+        euler = output_msg.orientation.to_euler()
+        self.cmd_vel.publish(
+            Twist(
+                linear=Vector3(x=euler.y, y=-euler.x, z=0.0),  # pitch→fwd, -roll→strafe
+                angular=Vector3(x=0.0, y=0.0, z=euler.z),  # yaw→turn
+            )
+        )
+
+
+class CombinedTeleopModule(ArmTeleopModule):
+    """Combined teleop: left controller → twist (Go2), right controller → arm PoseStamped.
+
+    Single Quest connection that handles both ground robot and arm teleop.
+    Left controller orientation is converted to Twist for mobile base control.
+    Right controller uses ArmTeleopModule behavior (PoseStamped with task name routing).
+    """
+
+    cmd_vel: Out[Twist]
+
+    def _publish_msg(self, hand: Hand, output_msg: PoseStamped) -> None:
+        if hand == Hand.LEFT:
+            # Left controller → twist for Go2/G1
+            euler = output_msg.orientation.to_euler()
+            self.cmd_vel.publish(
+                Twist(
+                    linear=Vector3(x=euler.y, y=-euler.x, z=0.0),
+                    angular=Vector3(x=0.0, y=0.0, z=euler.z),
+                )
+            )
+        else:
+            # Right controller → arm teleop (with task name routing)
+            super()._publish_msg(hand, output_msg)
+
+
 # Module blueprints for easy instantiation
 twist_teleop_module = TwistTeleopModule.blueprint
 arm_teleop_module = ArmTeleopModule.blueprint
 visualizing_teleop_module = VisualizingTeleopModule.blueprint
+simple_quest_teleop_module = SimpleQuestTeleop.blueprint
+combined_teleop_module = CombinedTeleopModule.blueprint
 
 __all__ = [
     "ArmTeleopConfig",
     "ArmTeleopModule",
+    "CombinedTeleopModule",
+    "SimpleQuestTeleop",
     "TwistTeleopModule",
     "VisualizingTeleopModule",
     "arm_teleop_module",
+    "combined_teleop_module",
+    "simple_quest_teleop_module",
     "twist_teleop_module",
     "visualizing_teleop_module",
 ]
