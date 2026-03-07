@@ -20,7 +20,7 @@ from dimos.core.blueprints import autoconnect
 from dimos.core.transport import pSHMTransport
 from dimos.msgs.sensor_msgs import Image
 from dimos.robot.foxglove_bridge import foxglove_bridge
-from dimos.robot.unitree.g1.blueprints.perceptive.unitree_g1 import unitree_g1
+from dimos.robot.unitree.g1.legacy.blueprints.perceptive.unitree_g1 import unitree_g1
 
 unitree_g1_shm = autoconnect(
     unitree_g1.transports(

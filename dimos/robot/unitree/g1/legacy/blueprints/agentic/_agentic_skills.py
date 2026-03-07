@@ -18,7 +18,7 @@
 from dimos.agents.agent import agent
 from dimos.agents.skills.navigation import navigation_skill
 from dimos.core.blueprints import autoconnect
-from dimos.robot.unitree.g1.skill_container import g1_skills
+from dimos.robot.unitree.g1.legacy.skill_container import g1_skills
 
 _agentic_skills = autoconnect(
     agent(),
