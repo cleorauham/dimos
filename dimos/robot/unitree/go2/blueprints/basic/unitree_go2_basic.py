@@ -94,7 +94,7 @@ rerun_config = {
 }
 
 
-with_vis = autoconnect(
+_with_vis = autoconnect(
     _transports_base,
     vis_module(
         global_config.viewer_backend,
@@ -105,7 +105,7 @@ with_vis = autoconnect(
 
 unitree_go2_basic = (
     autoconnect(
-        with_vis,
+        _with_vis,
         go2_connection(),
         websocket_vis(),
     )
