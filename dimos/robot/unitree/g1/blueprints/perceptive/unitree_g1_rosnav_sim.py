@@ -13,15 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""G1 with ROSNav in simulation mode (Unity)."""
+"""G1 with ROSNav in simulation mode (Unity).
+
+Unlike the onboard blueprint, the sim variant does NOT include
+G1HighLevelDdsSdk (which requires the Unitree SDK and real hardware).
+In simulation the ROSNav container drives cmd_vel internally.
+"""
 
 from dimos.core.blueprints import autoconnect
 from dimos.navigation.rosnav.rosnav_module import ROSNav
-from dimos.robot.unitree.g1.blueprints.basic.unitree_g1_onboard import unitree_g1_onboard
+from dimos.robot.unitree.g1.blueprints.primitive._mapper import _mapper
+from dimos.robot.unitree.g1.blueprints.primitive._vis import _vis
+from dimos.web.websocket_vis.websocket_vis_module import websocket_vis
 
 unitree_g1_rosnav_sim = autoconnect(
-    unitree_g1_onboard,
+    _vis,
+    _mapper,
+    websocket_vis(),
     ROSNav.blueprint(mode="simulation"),
-).global_config(n_dask_workers=6, robot_model="unitree_g1")
+).global_config(n_workers=4, robot_model="unitree_g1")
 
 __all__ = ["unitree_g1_rosnav_sim"]
