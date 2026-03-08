@@ -29,11 +29,10 @@ from typing import (
 
 import numpy as np
 import reactivex.operators as ops
-from rich.console import Console
-from rich.text import Text
 
 from dimos.types.timestamped import Timestamped
 
+from .formatting import render_text, rich_text
 from .type import (
     AfterFilter,
     AtFilter,
@@ -65,14 +64,6 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 R = TypeVar("R")
-
-_console = Console(force_terminal=True, highlight=False)
-
-
-def _render_text(text: Text) -> str:
-    with _console.capture() as cap:
-        _console.print(text, end="", soft_wrap=True)
-    return cap.get()
 
 
 class StreamBackend(Protocol):
@@ -128,29 +119,11 @@ class Stream(Generic[T]):
         )
         return clone
 
-    def _rich_text(self) -> Text:
-        t = Text()
-        cls = type(self).__name__
-        type_name = self._payload_type.__name__ if self._payload_type else "?"
-        name = self._backend.stream_name if self._backend else "unbound"
-        t.append(cls, style="bold cyan")
-        t.append("[", style="dim")
-        t.append(type_name, style="yellow")
-        t.append("]", style="dim")
-        t.append("(", style="dim")
-        t.append(f'"{name}"', style="green")
-        t.append(")", style="dim")
-        query_text = self._query._rich_text()
-        if query_text.plain:
-            t.append(" | ", style="dim")
-            t.append_text(query_text)
-        return t
-
     def __repr__(self) -> str:
-        return self._rich_text().plain
+        return rich_text(self).plain
 
     def __str__(self) -> str:
-        return _render_text(self._rich_text())
+        return render_text(rich_text(self))
 
     def _with_filter(self, f: Filter) -> Self:
         return self._clone(filters=(*self._query.filters, f))
@@ -417,12 +390,12 @@ class Stream(Generic[T]):
     def summary(self) -> str:
         from datetime import datetime, timezone
 
-        t = self._rich_text()
+        t = rich_text(self)
         n = self.count()
         if n == 0:
             t.append(": ", style="dim")
             t.append("empty", style="italic dim")
-            return _render_text(t)
+            return render_text(t)
         t0, t1 = self.get_time_range()
         fmt = "%Y-%m-%d %H:%M:%S"
         dt0 = datetime.fromtimestamp(t0, tz=timezone.utc).strftime(fmt)
@@ -435,7 +408,7 @@ class Stream(Generic[T]):
         t.append(" — ", style="dim")
         t.append(dt1, style="bright_blue")
         t.append(f" ({dur:.1f}s)", style="dim yellow")
-        return _render_text(t)
+        return render_text(t)
 
     # ── Reactive ──────────────────────────────────────────────────────
 
@@ -584,36 +557,11 @@ class TransformStream(Stream[R]):
         self._live = live
         self._backfill_only = backfill_only
 
-    def _rich_text(self) -> Text:
-        t = Text()
-        type_name = self._transformer.output_type.__name__ if self._transformer.output_type else "?"
-        xf_name = type(self._transformer).__name__
-        t.append("TransformStream", style="bold cyan")
-        t.append("[", style="dim")
-        t.append(type_name, style="yellow")
-        t.append("]", style="dim")
-        t.append("(", style="dim")
-        t.append_text(self._source._rich_text())
-        t.append(" -> ", style="dim")
-        t.append(xf_name, style="magenta")
-        if self._live:
-            t.append(", ", style="dim")
-            t.append("live=True", style="yellow")
-        if self._backfill_only:
-            t.append(", ", style="dim")
-            t.append("backfill_only=True", style="yellow")
-        t.append(")", style="dim")
-        query_text = self._query._rich_text()
-        if query_text.plain:
-            t.append(" | ", style="dim")
-            t.append_text(query_text)
-        return t
-
     def __repr__(self) -> str:
-        return self._rich_text().plain
+        return rich_text(self).plain
 
     def __str__(self) -> str:
-        return _render_text(self._rich_text())
+        return render_text(rich_text(self))
 
     def fetch(self) -> ObservationSet[R]:
         """Execute transform in memory, collecting results."""
@@ -779,18 +727,6 @@ class ObservationSet(Stream[T]):
         self._observations = observations
         backend = ListBackend(cast("list[Observation[Any]]", observations))
         super().__init__(backend=backend, session=session, payload_type=payload_type)
-
-    def _rich_text(self) -> Text:
-        t = Text()
-        type_name = self._payload_type.__name__ if self._payload_type else "?"
-        t.append("ObservationSet", style="bold cyan")
-        t.append("[", style="dim")
-        t.append(type_name, style="yellow")
-        t.append("]", style="dim")
-        t.append("(", style="dim")
-        t.append(f"{len(self._observations)} items", style="green")
-        t.append(")", style="dim")
-        return t
 
     def _clone(self, **overrides: Any) -> Stream[T]:  # type: ignore[override]
         """Downgrade to plain Stream — don't carry _observations through chaining."""

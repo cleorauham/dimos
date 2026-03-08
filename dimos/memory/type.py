@@ -19,8 +19,6 @@ from dataclasses import dataclass, field
 import math
 from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar
 
-from rich.text import Text
-
 from dimos.models.embedding.base import Embedding
 
 if TYPE_CHECKING:
@@ -97,12 +95,6 @@ class AfterFilter:
     def __str__(self) -> str:
         return f"after(t={self.t})"
 
-    def _rich_text(self) -> Text:
-        t = Text()
-        t.append("after", style="cyan")
-        t.append(f"(t={self.t})")
-        return t
-
 
 @dataclass(frozen=True)
 class BeforeFilter:
@@ -113,12 +105,6 @@ class BeforeFilter:
 
     def __str__(self) -> str:
         return f"before(t={self.t})"
-
-    def _rich_text(self) -> Text:
-        t = Text()
-        t.append("before", style="cyan")
-        t.append(f"(t={self.t})")
-        return t
 
 
 @dataclass(frozen=True)
@@ -132,12 +118,6 @@ class TimeRangeFilter:
     def __str__(self) -> str:
         return f"time_range({self.t1}, {self.t2})"
 
-    def _rich_text(self) -> Text:
-        t = Text()
-        t.append("time_range", style="cyan")
-        t.append(f"({self.t1}, {self.t2})")
-        return t
-
 
 @dataclass(frozen=True)
 class AtFilter:
@@ -149,12 +129,6 @@ class AtFilter:
 
     def __str__(self) -> str:
         return f"at(t={self.t}, tol={self.tolerance})"
-
-    def _rich_text(self) -> Text:
-        t = Text()
-        t.append("at", style="cyan")
-        t.append(f"(t={self.t}, tol={self.tolerance})")
-        return t
 
 
 @dataclass(frozen=True)
@@ -173,12 +147,6 @@ class NearFilter:
     def __str__(self) -> str:
         return f"near(radius={self.radius})"
 
-    def _rich_text(self) -> Text:
-        t = Text()
-        t.append("near", style="cyan")
-        t.append(f"(radius={self.radius})")
-        return t
-
 
 @dataclass(frozen=True)
 class TagsFilter:
@@ -190,13 +158,6 @@ class TagsFilter:
     def __str__(self) -> str:
         pairs = ", ".join(f"{k}={v!r}" for k, v in self.tags)
         return f"tags({pairs})"
-
-    def _rich_text(self) -> Text:
-        t = Text()
-        t.append("tags", style="cyan")
-        pairs = ", ".join(f"{k}={v!r}" for k, v in self.tags)
-        t.append(f"({pairs})")
-        return t
 
 
 @dataclass(frozen=True)
@@ -214,17 +175,6 @@ class EmbeddingSearchFilter:
             parts.insert(0, repr(self.label))
         return f"search_embedding({', '.join(parts)})"
 
-    def _rich_text(self) -> Text:
-        t = Text()
-        t.append("search_embedding", style="cyan")
-        t.append("(")
-        if self.label:
-            t.append(repr(self.label), style="green")
-            t.append(", ")
-        t.append(f"k={self.k}")
-        t.append(")")
-        return t
-
 
 @dataclass(frozen=True)
 class TextSearchFilter:
@@ -236,12 +186,6 @@ class TextSearchFilter:
 
     def __str__(self) -> str:
         return f"text({self.text!r})"
-
-    def _rich_text(self) -> Text:
-        t = Text()
-        t.append("text", style="cyan")
-        t.append(f"({self.text!r})")
-        return t
 
 
 @dataclass(frozen=True)
@@ -262,13 +206,6 @@ class LineageFilter:
     def __str__(self) -> str:
         hops = " -> ".join(self.hops) if self.hops else "direct"
         return f"lineage({self.source_table} -> {hops})"
-
-    def _rich_text(self) -> Text:
-        t = Text()
-        t.append("lineage", style="cyan")
-        hops = " -> ".join(self.hops) if self.hops else "direct"
-        t.append(f"({self.source_table} -> {hops})")
-        return t
 
 
 Filter: TypeAlias = (
@@ -304,29 +241,3 @@ class StreamQuery:
         if self.offset_val is not None:
             parts.append(f"offset({self.offset_val})")
         return " | ".join(parts)
-
-    def _rich_text(self) -> Text:
-        t = Text()
-        pipe = Text(" | ", style="dim")
-        parts: list[Text] = [f._rich_text() for f in self.filters]
-        if self.order_field:
-            p = Text()
-            p.append("order", style="cyan")
-            direction = "desc" if self.order_desc else "asc"
-            p.append(f"({self.order_field}, {direction})")
-            parts.append(p)
-        if self.limit_val is not None:
-            p = Text()
-            p.append("limit", style="cyan")
-            p.append(f"({self.limit_val})")
-            parts.append(p)
-        if self.offset_val is not None:
-            p = Text()
-            p.append("offset", style="cyan")
-            p.append(f"({self.offset_val})")
-            parts.append(p)
-        for i, part in enumerate(parts):
-            if i > 0:
-                t.append_text(pipe)
-            t.append_text(part)
-        return t
