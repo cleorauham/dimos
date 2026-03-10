@@ -14,11 +14,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from dimos.core.global_config import GlobalConfig
-from dimos.core.module import ModuleBase
+from dimos.core.module import ModuleBase, ModuleSpec
 from dimos.core.rpc_client import RPCClient
 from dimos.core.worker import Worker
 from dimos.utils.logging_config import setup_logger
@@ -60,9 +61,7 @@ class WorkerManager:
         actor = worker.deploy_module(module_class, global_config, kwargs=kwargs)
         return RPCClient(actor, module_class)
 
-    def deploy_parallel(
-        self, module_specs: list[tuple[type[ModuleBase], GlobalConfig, dict[str, Any]]]
-    ) -> list[RPCClient]:
+    def deploy_parallel(self, module_specs: Iterable[ModuleSpec]) -> list[RPCClient]:
         if self._closed:
             raise RuntimeError("WorkerManager is closed")
 

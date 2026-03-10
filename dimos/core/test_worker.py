@@ -142,9 +142,9 @@ def test_worker_manager_parallel_deployment(create_worker_manager):
     worker_manager = create_worker_manager(n_workers=2)
     modules = worker_manager.deploy_parallel(
         [
-            (SimpleModule, (), {}),
-            (AnotherModule, (), {}),
-            (ThirdModule, (), {}),
+            (SimpleModule, global_config, {}),
+            (AnotherModule, global_config, {}),
+            (ThirdModule, global_config, {}),
         ]
     )
 

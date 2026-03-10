@@ -277,7 +277,7 @@ class Blueprint:
         self, module_coordinator: ModuleCoordinator, global_config: GlobalConfig
     ) -> None:
         module_specs: list[ModuleSpec] = []
-        for blueprint in self.blueprints:
+        for blueprint in self._active_blueprints:
             module_specs.append((blueprint.module, global_config, blueprint.kwargs))
 
         module_coordinator.deploy_parallel(module_specs)
