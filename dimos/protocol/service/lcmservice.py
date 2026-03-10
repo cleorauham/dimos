@@ -81,6 +81,11 @@ class LCMService(Service[LCMConfig]):
         else:
             self.l = lcm.LCM(self.config.url) if self.config.url else lcm.LCM()
 
+        try:
+            autoconf(check_only=not self.config.autoconf)
+        except Exception as e:
+            print(f"Error checking system configuration: {e}")
+
         self._l_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread = None
@@ -115,11 +120,6 @@ class LCMService(Service[LCMConfig]):
                 self.l = self.config.lcm
             else:
                 self.l = lcm.LCM(self.config.url) if self.config.url else lcm.LCM()
-
-        try:
-            autoconf(check_only=not self.config.autoconf)
-        except Exception as e:
-            print(f"Error checking system configuration: {e}")
 
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._lcm_loop)
