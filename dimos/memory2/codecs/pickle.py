@@ -12,7 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dimos.memory2.codecs.base import Codec, codec_for
-from dimos.memory2.codecs.pickle import PickleCodec
+from __future__ import annotations
 
-__all__ = ["Codec", "PickleCodec", "codec_for"]
+import pickle
+from typing import Any
+
+
+class PickleCodec:
+    """Fallback codec for arbitrary Python objects."""
+
+    def encode(self, value: Any) -> bytes:
+        return pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def decode(self, data: bytes) -> Any:
+        return pickle.loads(data)

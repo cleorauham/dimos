@@ -12,7 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dimos.memory2.codecs.base import Codec, codec_for
-from dimos.memory2.codecs.pickle import PickleCodec
+from __future__ import annotations
 
-__all__ = ["Codec", "PickleCodec", "codec_for"]
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dimos.msgs.protocol import DimosMsg
+
+
+class LcmCodec:
+    """Codec for DimosMsg types — uses lcm_encode/lcm_decode."""
+
+    def __init__(self, msg_type: type[DimosMsg]) -> None:
+        self._msg_type = msg_type
+
+    def encode(self, value: DimosMsg) -> bytes:
+        return value.lcm_encode()
+
+    def decode(self, data: bytes) -> DimosMsg:
+        return self._msg_type.lcm_decode(data)
