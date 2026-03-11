@@ -103,6 +103,9 @@ class DIOApp(App[None]):
             config_path = Path(sys.prefix) / "dio-config.json"
             data = json.loads(config_path.read_text())
             name = data.get("theme", theme.DEFAULT_THEME)
+            # Migrate old theme names
+            _MIGRATION = {"dark": "dark-one", "midnight": "dark-two"}
+            name = _MIGRATION.get(name, name)
             if name in theme.THEME_NAMES:
                 return name
         except Exception:
@@ -327,13 +330,17 @@ class DIOApp(App[None]):
         await self._move_tab(1)
 
     def action_focus_prev_panel(self) -> None:
-        self._log(f"[{theme.DEBUG_ACTION}]ACTION[/{theme.DEBUG_ACTION}] focus_prev_panel  (was panel={self._focused_panel})")
+        self._log(
+            f"[{theme.DEBUG_ACTION}]ACTION[/{theme.DEBUG_ACTION}] focus_prev_panel  (was panel={self._focused_panel})"
+        )
         self._clear_quit_pending()
         new = max(0, self._focused_panel - 1)
         self._focus_panel(new)
 
     def action_focus_next_panel(self) -> None:
-        self._log(f"[{theme.DEBUG_ACTION}]ACTION[/{theme.DEBUG_ACTION}] focus_next_panel  (was panel={self._focused_panel})")
+        self._log(
+            f"[{theme.DEBUG_ACTION}]ACTION[/{theme.DEBUG_ACTION}] focus_next_panel  (was panel={self._focused_panel})"
+        )
         self._clear_quit_pending()
         new = min(self._num_panels - 1, self._focused_panel + 1)
         self._focus_panel(new)
@@ -344,9 +351,13 @@ class DIOApp(App[None]):
         if selected:
             self.copy_to_clipboard(selected)
             self.screen.clear_selection()
-            self._log(f"[{theme.DEBUG_ACTION}]ACTION[/{theme.DEBUG_ACTION}] copy_text (copied to clipboard)")
+            self._log(
+                f"[{theme.DEBUG_ACTION}]ACTION[/{theme.DEBUG_ACTION}] copy_text (copied to clipboard)"
+            )
         else:
-            self._log(f"[{theme.DEBUG_ACTION}]ACTION[/{theme.DEBUG_ACTION}] copy_text -> no selection, treating as quit")
+            self._log(
+                f"[{theme.DEBUG_ACTION}]ACTION[/{theme.DEBUG_ACTION}] copy_text -> no selection, treating as quit"
+            )
             self._handle_quit_press()
 
     def action_quit_or_esc(self) -> None:
