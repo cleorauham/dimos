@@ -80,7 +80,7 @@ class LCMSpyApp(App):  # type: ignore[type-arg]
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
-        self.spy = GraphLCMSpy(autoconf=True, graph_log_window=0.5)
+        self.spy = GraphLCMSpy(graph_log_window=0.5)
         self.table: DataTable | None = None  # type: ignore[type-arg]
 
     def compose(self) -> ComposeResult:

@@ -198,7 +198,7 @@ class ResourceSpyApp(App[None]):
     def __init__(self, topic_name: str = "/dimos/resource_stats") -> None:
         super().__init__()
         self._topic_name = topic_name
-        self._lcm = PickleLCM(autoconf=True)
+        self._lcm = PickleLCM()
         self._lock = threading.Lock()
         self._latest: dict[str, Any] | None = None
         self._last_msg_time: float = 0.0

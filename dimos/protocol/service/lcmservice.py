@@ -49,7 +49,6 @@ def autoconf(check_only: bool = False) -> None:
 class LCMConfig:
     ttl: int = 0
     url: str | None = None
-    autoconf: bool = True
     lcm: lcm.LCM | None = None
 
     def __post_init__(self) -> None:
@@ -79,12 +78,6 @@ class LCMService(Service[LCMConfig]):
     def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(**kwargs)
 
-        # autoconf must run in __init__ (not start()) so that stdin prompts
-        # are asked during blueprint build, before the module moves to a worker
-        try:
-            autoconf(check_only=not self.config.autoconf)
-        except Exception as e:
-            print(f"Error checking system configuration: {e}")
 
         self._l: lcm.LCM | None = None
         self._l_lock = threading.Lock()
