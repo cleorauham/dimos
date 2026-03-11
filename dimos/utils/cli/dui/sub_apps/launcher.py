@@ -32,12 +32,22 @@ if TYPE_CHECKING:
     from textual.app import ComposeResult
 
 
-def _launch_log_path() -> Path:
-    """Well-known path for launch stdout/stderr."""
+def _launch_log_dir() -> Path:
+    """Base directory for launch logs."""
     xdg = os.environ.get("XDG_STATE_HOME")
     base = Path(xdg) / "dimos" if xdg else Path.home() / ".local" / "state" / "dimos"
     base.mkdir(parents=True, exist_ok=True)
-    return base / "launch.log"
+    return base
+
+
+def _launch_log_path() -> Path:
+    """Well-known path for launch stdout/stderr (with ANSI colors)."""
+    return _launch_log_dir() / "launch.log"
+
+
+def _launch_log_plain_path() -> Path:
+    """Well-known path for launch stdout/stderr (plain text, no ANSI)."""
+    return _launch_log_dir() / "launch.plain.log"
 
 
 def _is_blueprint_running() -> bool:
@@ -258,22 +268,35 @@ class LauncherSubApp(SubApp):
         cmd = [sys.executable, "-m", "dimos.robot.cli.dimos", *config_args, "run", "--daemon", name]
 
         def _do_launch() -> None:
+            import re
+
+            _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
             log_file = _launch_log_path()
+            plain_file = _launch_log_plain_path()
             # Preserve ANSI colors in piped output
             env = os.environ.copy()
             env["FORCE_COLOR"] = "1"
             env["PYTHONUNBUFFERED"] = "1"
             env["TERM"] = env.get("TERM", "xterm-256color")
             try:
-                with open(log_file, "w") as f:
+                with (
+                    open(log_file, "w") as f_color,
+                    open(plain_file, "w") as f_plain,
+                ):
                     proc = subprocess.Popen(
                         cmd,
                         stdin=subprocess.DEVNULL,
-                        stdout=f,
+                        stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         env=env,
                         start_new_session=True,
                     )
+                    for raw_line in proc.stdout:  # type: ignore[union-attr]
+                        line = raw_line.decode("utf-8", errors="replace")
+                        f_color.write(line)
+                        f_color.flush()
+                        f_plain.write(_ANSI_RE.sub("", line))
+                        f_plain.flush()
                     proc.wait()
                 rc = proc.returncode
 

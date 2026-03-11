@@ -73,6 +73,8 @@ class DtopSubApp(SubApp):
         self._last_msg_time: float = 0.0
         self._cpu_history: dict[str, deque[float]] = {}
         self._reconnecting = False
+        self._refresh_count = 0
+        self._msg_count = 0
 
     def _debug(self, msg: str) -> None:
         try:
@@ -139,8 +141,7 @@ class DtopSubApp(SubApp):
             self._debug("_init_lcm: creating PickleLCM...")
             plcm = PickleLCM()
             self._debug(
-                f"_init_lcm: PickleLCM created, l={plcm.l is not None}, "
-                f"url={plcm.config.url}"
+                f"_init_lcm: PickleLCM created, l={plcm.l is not None}, url={plcm.config.url}"
             )
 
             self._debug("_init_lcm: subscribing to /dimos/resource_stats...")
@@ -155,6 +156,53 @@ class DtopSubApp(SubApp):
 
             self._lcm = plcm
             self._debug("_init_lcm: DONE — listening for messages")
+
+            # Self-test: publish a test message and see if we receive it
+            self._debug("_init_lcm: running self-test...")
+            self._self_test_received = False
+            test_topic = "/dimos/_dtop_self_test"
+            test_plcm = PickleLCM()
+
+            def _on_test(msg: Any, _topic: Any) -> None:
+                self._self_test_received = True
+
+            test_plcm.subscribe(Topic(test_topic), _on_test)
+            test_plcm.start()
+            import time as _time
+
+            _time.sleep(0.2)
+            test_plcm.publish(test_topic, {"test": True})
+            _time.sleep(0.5)
+            if self._self_test_received:
+                self._debug("_init_lcm: self-test PASSED — LCM multicast is working")
+            else:
+                self._debug(
+                    "_init_lcm: self-test FAILED — LCM multicast NOT working! "
+                    "Check multicast routes and firewall."
+                )
+            try:
+                test_plcm.stop()
+            except Exception:
+                pass
+
+            # Also try publishing on the real topic to see if our main
+            # subscription picks it up
+            self._debug("_init_lcm: testing subscription on /dimos/resource_stats...")
+            plcm.publish("/dimos/resource_stats", {
+                "coordinator": {"pid": 0, "cpu_percent": 0, "alive": True},
+                "workers": [],
+            })
+            _time.sleep(0.3)
+            if self._latest is not None:
+                self._debug("_init_lcm: real-topic self-test PASSED")
+            else:
+                self._debug(
+                    "_init_lcm: real-topic self-test FAILED — subscription to "
+                    "/dimos/resource_stats may not be working"
+                )
+            # Clear the test data so the real data takes over
+            with self._lock:
+                self._latest = None
         except Exception as e:
             import traceback
 
@@ -180,6 +228,7 @@ class DtopSubApp(SubApp):
             self._reconnecting = False
 
     def _on_msg(self, msg: dict[str, Any], _topic: str) -> None:
+        self._msg_count += 1
         first = False
         with self._lock:
             if self._latest is None:
@@ -188,8 +237,11 @@ class DtopSubApp(SubApp):
             self._last_msg_time = time.monotonic()
         if first:
             self._debug(f"_on_msg: FIRST message received! keys={list(msg.keys())}")
+        elif self._msg_count % 10 == 0:
+            self._debug(f"_on_msg: {self._msg_count} messages received so far")
 
     def _refresh(self) -> None:
+        self._refresh_count += 1
         with self._lock:
             data = self._latest
             last_msg = self._last_msg_time
@@ -200,6 +252,18 @@ class DtopSubApp(SubApp):
             return
 
         now = time.monotonic()
+
+        # Log status every 10 seconds (20 refresh cycles at 0.5s)
+        if self._refresh_count % 20 == 0:
+            lcm = self._lcm
+            thread_alive = "N/A"
+            if lcm is not None and hasattr(lcm, "_thread") and lcm._thread is not None:
+                thread_alive = str(lcm._thread.is_alive())
+            self._debug(
+                f"_refresh #{self._refresh_count}: data={'yes' if data else 'no'}, "
+                f"msgs={self._msg_count}, lcm={'yes' if lcm else 'no'}, "
+                f"thread_alive={thread_alive}"
+            )
 
         if data is None:
             scroll.add_class("waiting")

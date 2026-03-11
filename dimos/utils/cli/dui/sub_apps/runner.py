@@ -36,11 +36,20 @@ if TYPE_CHECKING:
     from textual.app import ComposeResult
 
 
-def _launch_log_path() -> Path:
-    """Well-known path for launch stdout/stderr (shared with launcher)."""
+def _launch_log_dir() -> Path:
+    """Base directory for launch logs."""
     xdg = os.environ.get("XDG_STATE_HOME")
-    base = Path(xdg) / "dimos" if xdg else Path.home() / ".local" / "state" / "dimos"
-    return base / "launch.log"
+    return Path(xdg) / "dimos" if xdg else Path.home() / ".local" / "state" / "dimos"
+
+
+def _launch_log_path() -> Path:
+    """Well-known path for launch stdout/stderr (with ANSI colors)."""
+    return _launch_log_dir() / "launch.log"
+
+
+def _launch_log_plain_path() -> Path:
+    """Well-known path for launch stdout/stderr (plain text, no ANSI)."""
+    return _launch_log_dir() / "launch.plain.log"
 
 
 class StatusSubApp(SubApp):
@@ -560,12 +569,17 @@ class StatusSubApp(SubApp):
             pass
 
     def _handle_double_click(self, event: Any) -> None:
-        """Open launch.log in the user's editor."""
-        log_path = _launch_log_path()
+        """Open the plain (no ANSI) launch log in the user's editor."""
+        log_path = _launch_log_plain_path()
         if log_path.exists():
             self._open_source_file(str(log_path), 0)
         else:
-            self.app.notify("No launch log found", severity="warning")
+            # Fall back to colored version
+            log_path = _launch_log_path()
+            if log_path.exists():
+                self._open_source_file(str(log_path), 0)
+            else:
+                self.app.notify("No launch log found", severity="warning")
 
     def _open_source_file(self, file_path: str, lineno: int) -> None:
         """Open a source file in the user's preferred GUI editor.
@@ -803,16 +817,29 @@ class StatusSubApp(SubApp):
             env["PYTHONUNBUFFERED"] = "1"
             env["TERM"] = env.get("TERM", "xterm-256color")
             try:
+                import re as _re
+
+                _ANSI_RE = _re.compile(r"\x1b\[[0-9;]*m")
                 log_file = _launch_log_path()
-                with open(log_file, "w") as f:
+                plain_file = _launch_log_plain_path()
+                with (
+                    open(log_file, "w") as f_color,
+                    open(plain_file, "w") as f_plain,
+                ):
                     proc = subprocess.Popen(
                         cmd,
                         stdin=subprocess.DEVNULL,
-                        stdout=f,
+                        stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         env=env,
                         start_new_session=True,
                     )
+                    for raw_line in proc.stdout:  # type: ignore[union-attr]
+                        line = raw_line.decode("utf-8", errors="replace")
+                        f_color.write(line)
+                        f_color.flush()
+                        f_plain.write(_ANSI_RE.sub("", line))
+                        f_plain.flush()
                     proc.wait()
             except Exception as e:
                 self.app.call_from_thread(log_widget.write, f"[red]Restart error: {e}[/red]")
