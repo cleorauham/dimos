@@ -22,6 +22,7 @@ import sqlite3
 import threading
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
+from dimos.core.resource import CompositeResource
 from dimos.memory2.backend import BackendConfig
 from dimos.memory2.blobstore.sqlite import SqliteBlobStore
 from dimos.memory2.codecs.base import Codec, codec_for
@@ -242,13 +243,18 @@ def _compile_count(
 # ── SqliteBackend ────────────────────────────────────────────────
 
 
-class SqliteBackend(Configurable[BackendConfig], Generic[T]):
-    """SQLite-backed observation storage for a single stream (table)."""
+class SqliteBackend(Configurable[BackendConfig], CompositeResource, Generic[T]):
+    """SQLite-backed observation storage for a single stream (table).
+
+    Owns its ``sqlite3.Connection``.  When disposed (via
+    ``CompositeResource.stop()``), the connection is closed.
+    """
 
     default_config: type[BackendConfig] = BackendConfig
 
     def __init__(self, conn: sqlite3.Connection, name: str, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
+        Configurable.__init__(self, **kwargs)
+        CompositeResource.__init__(self)
         self._conn = conn
         self._name = name
         self._codec: Codec[Any] = self.config.codec  # type: ignore[assignment]
@@ -460,15 +466,15 @@ class SqliteBackend(Configurable[BackendConfig], Generic[T]):
     ) -> Iterator[Observation[T]]:
         from dimos.memory2.buffer import ClosedError
 
-        # Backfill phase
-        last_id = -1
-        for obs in self._iterate_snapshot(query):
-            last_id = max(last_id, obs.id)
-            yield obs
-
-        # Live tail
-        filters = query.filters
         try:
+            # Backfill phase
+            last_id = -1
+            for obs in self._iterate_snapshot(query):
+                last_id = max(last_id, obs.id)
+                yield obs
+
+            # Live tail
+            filters = query.filters
             while True:
                 obs = buf.take()
                 if obs.id <= last_id:
@@ -478,6 +484,8 @@ class SqliteBackend(Configurable[BackendConfig], Generic[T]):
                     continue
                 yield obs
         except (ClosedError, StopIteration):
+            pass
+        finally:
             sub.dispose()
 
     def count(self, query: StreamQuery) -> int:
@@ -491,40 +499,48 @@ class SqliteBackend(Configurable[BackendConfig], Generic[T]):
         row = self._conn.execute(sql, params).fetchone()
         return int(row[0]) if row else 0
 
+    def stop(self) -> None:
+        super().stop()
+        self._conn.close()
+
 
 # ── SqliteSession ────────────────────────────────────────────────
 
 
 class SqliteSession(Session):
-    """Session owning a single SQLite connection."""
+    """Session owning a SQLite database.
 
-    def __init__(
-        self, conn: sqlite3.Connection, *, vec_available: bool = False, **kwargs: Any
-    ) -> None:
+    Each backend gets its own ``sqlite3.Connection`` so SQLite WAL mode
+    handles cross-stream concurrency natively.  A separate
+    ``_registry_conn`` is used only for the ``_streams`` registry table.
+    """
+
+    def __init__(self, db_path: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._conn = conn
-        self._vec_available = vec_available
-        self._blob_store: SqliteBlobStore | None = None
-        self._vector_store: Any | None = None
+        self._db_path = db_path
 
-        # Create stream registry
-        self._conn.execute(
+        # Dedicated connection for the stream registry table
+        self._registry_conn = self._open_connection()
+        self._registry_conn.execute(
             "CREATE TABLE IF NOT EXISTS _streams ("
             "    name           TEXT PRIMARY KEY,"
             "    payload_module TEXT NOT NULL,"
             "    codec_id       TEXT NOT NULL"
             ")"
         )
-        self._conn.commit()
+        self._registry_conn.commit()
 
-    def _ensure_shared_stores(self) -> None:
-        """Lazily create shared stores on first stream creation."""
-        if self._blob_store is None:
-            self._blob_store = SqliteBlobStore(self._conn)
-        if self._vector_store is None and self._vec_available:
-            from dimos.memory2.vectorstore.sqlite import SqliteVectorStore
+    def _open_connection(self) -> sqlite3.Connection:
+        """Open a new WAL-mode connection with sqlite-vec loaded."""
+        import sqlite_vec
 
-            self._vector_store = SqliteVectorStore(self._conn)
+        conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        return conn
 
     @staticmethod
     def _codec_id(codec: Codec[Any]) -> str:
@@ -563,10 +579,9 @@ class SqliteSession(Session):
         self, name: str, payload_type: type[Any] | None = None, **config: Any
     ) -> Backend[Any]:
         _validate_identifier(name)
-        self._ensure_shared_stores()
 
         # Look up existing stream in registry
-        row = self._conn.execute(
+        row = self._registry_conn.execute(
             "SELECT payload_module, codec_id FROM _streams WHERE name = ?", (name,)
         ).fetchone()
 
@@ -585,14 +600,17 @@ class SqliteSession(Session):
                 raise TypeError(f"Stream {name!r} does not exist yet — payload_type is required")
             codec = config.get("codec") or codec_for(payload_type)
             payload_module = f"{payload_type.__module__}.{payload_type.__qualname__}"
-            self._conn.execute(
+            self._registry_conn.execute(
                 "INSERT INTO _streams (name, payload_module, codec_id) VALUES (?, ?, ?)",
                 (name, payload_module, self._codec_id(codec)),
             )
-            self._conn.commit()
+            self._registry_conn.commit()
+
+        # Each backend gets its own connection for WAL-mode concurrency
+        backend_conn = self._open_connection()
 
         # Create metadata table
-        self._conn.execute(
+        backend_conn.execute(
             f'CREATE TABLE IF NOT EXISTS "{name}" ('
             "    id      INTEGER PRIMARY KEY AUTOINCREMENT,"
             "    ts      REAL    NOT NULL UNIQUE,"
@@ -602,7 +620,7 @@ class SqliteSession(Session):
             ")"
         )
         # R*Tree spatial index for pose queries
-        self._conn.execute(
+        backend_conn.execute(
             f'CREATE VIRTUAL TABLE IF NOT EXISTS "{name}_rtree" USING rtree('
             "    id,"
             "    x_min, x_max,"
@@ -610,33 +628,39 @@ class SqliteSession(Session):
             "    z_min, z_max"
             ")"
         )
-        self._conn.commit()
+        backend_conn.commit()
 
-        # Merge shared stores as defaults
+        # Create per-backend stores wrapping the backend's own connection
         if "blob_store" not in config or config["blob_store"] is None:
-            config["blob_store"] = self._blob_store
+            config["blob_store"] = SqliteBlobStore(backend_conn)
         if "vector_store" not in config or config["vector_store"] is None:
-            config["vector_store"] = self._vector_store
+            from dimos.memory2.vectorstore.sqlite import SqliteVectorStore
+
+            config["vector_store"] = SqliteVectorStore(backend_conn)
         config["codec"] = codec
 
-        return SqliteBackend(self._conn, name, **config)
+        backend: SqliteBackend[Any] = SqliteBackend(backend_conn, name, **config)
+        self.own(backend)
+        return backend
 
     def list_streams(self) -> list[str]:
-        db_names = {row[0] for row in self._conn.execute("SELECT name FROM _streams").fetchall()}
+        db_names = {
+            row[0] for row in self._registry_conn.execute("SELECT name FROM _streams").fetchall()
+        }
         return sorted(db_names | set(self._streams.keys()))
 
     def delete_stream(self, name: str) -> None:
         self._streams.pop(name, None)
-        self._conn.execute(f'DROP TABLE IF EXISTS "{name}"')
-        self._conn.execute(f'DROP TABLE IF EXISTS "{name}_blob"')
-        self._conn.execute(f'DROP TABLE IF EXISTS "{name}_vec"')
-        self._conn.execute(f'DROP TABLE IF EXISTS "{name}_rtree"')
-        self._conn.execute("DELETE FROM _streams WHERE name = ?", (name,))
-        self._conn.commit()
+        self._registry_conn.execute(f'DROP TABLE IF EXISTS "{name}"')
+        self._registry_conn.execute(f'DROP TABLE IF EXISTS "{name}_blob"')
+        self._registry_conn.execute(f'DROP TABLE IF EXISTS "{name}_vec"')
+        self._registry_conn.execute(f'DROP TABLE IF EXISTS "{name}_rtree"')
+        self._registry_conn.execute("DELETE FROM _streams WHERE name = ?", (name,))
+        self._registry_conn.commit()
 
     def stop(self) -> None:
-        super().stop()
-        self._conn.close()
+        super().stop()  # disposes owned backends (closes their connections)
+        self._registry_conn.close()
 
 
 # ── SqliteStore ──────────────────────────────────────────────────
@@ -659,19 +683,4 @@ class SqliteStore(Store):
         super().__init__(**kwargs)
 
     def session(self, **kwargs: Any) -> SqliteSession:
-        conn = sqlite3.connect(self.config.path, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-
-        vec_available = False
-        try:
-            import sqlite_vec
-
-            conn.enable_load_extension(True)
-            sqlite_vec.load(conn)
-            conn.enable_load_extension(False)
-            vec_available = True
-        except (ImportError, Exception):
-            pass
-
-        return SqliteSession(conn, vec_available=vec_available, **kwargs)
+        return SqliteSession(self.config.path, **kwargs)

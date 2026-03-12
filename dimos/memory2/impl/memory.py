@@ -158,15 +158,15 @@ class ListBackend(Configurable[BackendConfig], Generic[T]):
 
         eager = self.config.eager_blobs and self.config.blob_store is not None
 
-        # Backfill phase — use snapshot query (without live) for the backfill
-        last_id = -1
-        for obs in self._iterate_snapshot(query):
-            last_id = max(last_id, obs.id)
-            yield obs
-
-        # Live tail
-        filters = query.filters
         try:
+            # Backfill phase — use snapshot query (without live) for the backfill
+            last_id = -1
+            for obs in self._iterate_snapshot(query):
+                last_id = max(last_id, obs.id)
+                yield obs
+
+            # Live tail
+            filters = query.filters
             while True:
                 obs = buf.take()
                 if obs.id <= last_id:
@@ -178,6 +178,8 @@ class ListBackend(Configurable[BackendConfig], Generic[T]):
                     _ = obs.data  # trigger lazy loader
                 yield obs
         except (ClosedError, StopIteration):
+            pass
+        finally:
             sub.dispose()
 
     def count(self, query: StreamQuery) -> int:
