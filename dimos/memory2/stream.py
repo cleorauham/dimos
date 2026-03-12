@@ -17,6 +17,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
+from dimos.core.resource import Resource
 from dimos.memory2.backend import Backend
 from dimos.memory2.buffer import BackpressureBuffer, KeepLast
 from dimos.memory2.filter import (
@@ -45,12 +46,15 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
-class Stream(Generic[T]):
+class Stream(Resource, Generic[T]):
     """Lazy, pull-based stream over observations.
 
     Every filter/transform method returns a new Stream — no computation
     happens until iteration. Backends handle query application for stored
     data; transform sources apply filters as Python predicates.
+
+    Implements Resource so live streams can be cleanly stopped via
+    ``stop()`` or used as a context manager.
     """
 
     def __init__(
@@ -63,6 +67,17 @@ class Stream(Generic[T]):
         self._source = source
         self._xf = xf
         self._query = query
+
+    def start(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        """Close the live buffer (if any), unblocking iteration."""
+        buf = self._query.live_buffer
+        if buf is not None:
+            buf.close()
+        if isinstance(self._source, Stream):
+            self._source.stop()
 
     def __str__(self) -> str:
         # Walk the source chain to collect (xf, query) pairs
