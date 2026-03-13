@@ -69,15 +69,15 @@ results = images.transform(Embed(clip)) \
 
 ## Backend Handles Storage Strategy
 
-The Backend protocol decides how to store embeddings based on what it sees:
+The Backend composite decides how to route storage based on what it sees:
 
-- `append(image, ts=now, embedding=vec)` → backend routes: blob table for Image, vec0 table for vector
-- `append(image, ts=now)` → blob table only (no embedding)
-- `ListBackend`: stores embeddings in-memory, brute-force cosine on search
-- `SqliteBackend`: vec0 side table for fast ANN search
+- `append(image, ts=now, embedding=vec)` → backend routes: blob via BlobStore, vector via VectorStore, metadata via Index
+- `append(image, ts=now)` → blob + metadata only (no embedding)
+- `ListIndex`: stores metadata in-memory, brute-force cosine via MemoryVectorStore
+- `SqliteIndex`: metadata in SQLite, vec0 side table for fast ANN search via SqliteVectorStore
 - Future backends (Postgres/pgvector, Qdrant, etc.) do their thing
 
-Search is pushed down to the backend. Stream just passes `.search()` calls through.
+Search is pushed down to the VectorStore. Stream just passes `.search()` calls through.
 
 ## Projection / Lineage
 
@@ -99,7 +99,7 @@ source_image = images.at(detection.ts).first()
 **Same embedding space = same stream.** CLIP maps images and text to the same 512-d space:
 
 ```python
-unified = session.stream("clip_unified")
+unified = store.stream("clip_unified")
 
 for obs in images.transform(Embed(clip.vision)):
     unified.append(obs.data, ts=obs.ts,
@@ -139,7 +139,7 @@ FTS is keyword-based, not embedding-based. Complementary, not competing:
 
 ```python
 # Keyword search via FTS5
-logs = session.text_stream("logs")
+logs = store.stream("logs")
 logs.search_text("motor fault").fetch()
 
 # Semantic search via embeddings

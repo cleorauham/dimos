@@ -7,13 +7,12 @@ Observation storage and streaming layer for DimOS. Pull-based, lazy, composable.
 ```
              Live Sensor Data
                     ↓
-Store → Session → Stream → [filters / transforms / terminals] → Stream  → [filters / transforms / terminals] → Stream → Live hooks
+Store → Stream → [filters / transforms / terminals] → Stream  → [filters / transforms / terminals] → Stream → Live hooks
                     ↓                                              ↓                                             ↓
-                 Backend (ListBackend, SqliteBackend)           Backend                                      In Memory
+    Backend (Index + BlobStore + VectorStore + LiveChannel)     Backend                                      In Memory
 ```
 
-**Store** owns a storage location (file, in-memory). **Session** manages named streams over a shared connection. **Stream** is the query/iteration surface — lazy until a terminal is called.
-
+**Store** owns a storage location (file, in-memory) and directly manages named streams. **Stream** is the query/iteration surface — lazy until a terminal is called. **Backend** is a concrete composite that orchestrates Index + BlobStore + VectorStore + LiveChannel for each stream.
 
 Supporting Systems:
 
@@ -28,22 +27,22 @@ Supporting Systems:
 | Module         | What                                                              |
 |----------------|-------------------------------------------------------------------|
 | `stream.py`    | Stream node — filters, transforms, terminals                      |
-| `backend.py`   | Backend protocol, LiveChannel / VectorStore / BlobStore ABCs     |
-| `filter.py`    | StreamQuery dataclass, filter types, Python query execution       |
+| `backend.py`   | Concrete Backend composite (Index + Blob + Vector + Live)         |
+| `store.py`     | Store, StoreConfig                                                |
 | `transform.py` | Transformer ABC, FnTransformer, FnIterTransformer, QualityWindow  |
 | `buffer.py`    | Backpressure buffers for live mode (KeepLast, Bounded, Unbounded) |
-| `store.py`     | Store / Session (Configurable), StoreConfig / SessionConfig      |
-| `type.py`      | Observation, EmbeddedObservation dataclasses                      |
 | `embed.py`     | EmbedImages / EmbedText transformers                              |
 
 ## Subpackages
 
-| Package      | What                                                 | Docs                                             |
-|--------------|------------------------------------------------------|--------------------------------------------------|
-| `impl/`         | Backend implementations (ListBackend, SqliteBackend) | [impl/README.md](impl/README.md)                 |
+| Package         | What                                                 | Docs                                             |
+|-----------------|------------------------------------------------------|--------------------------------------------------|
+| `type/`         | Observation, EmbeddedObservation, Index Protocol, Filter/StreamQuery, BlobStore/VectorStore/LiveChannel ABCs | |
+| `impl/`         | Index implementations (ListIndex, SqliteIndex) and Stores (MemoryStore, SqliteStore) | [impl/README.md](impl/README.md)                 |
 | `livechannel/`  | Live notification channels (SubjectChannel)          |                                                  |
 | `blobstore/`    | Pluggable blob storage (file, sqlite)                | [blobstore/blobstore.md](blobstore/blobstore.md) |
 | `codecs/`       | Encode/decode for storage (pickle, JPEG, LCM)        | [codecs/README.md](codecs/README.md)             |
+| `vectorstore/`  | Pluggable vector storage (memory, sqlite)            |                                                  |
 
 ## Docs
 
@@ -57,7 +56,7 @@ Supporting Systems:
 
 `StreamQuery` holds the full query spec (filters, text search, vector search, ordering, offset/limit). It also provides `apply(iterator)` — a Python-side execution path that runs all operations as in-memory predicates, brute-force cosine, and list sorts.
 
-This is the **default fallback**. Backends are free to push down operations using store-specific strategies instead:
+This is the **default fallback**. Index implementations are free to push down operations using store-specific strategies instead:
 
 | Operation      | Python fallback (`StreamQuery.apply`) | Store push-down (example)        |
 |----------------|---------------------------------------|----------------------------------|
@@ -67,9 +66,9 @@ This is the **default fallback**. Backends are free to push down operations usin
 | Ordering       | `sorted()` materialization            | SQL ORDER BY                     |
 | Offset / limit | `islice()`                            | SQL OFFSET / LIMIT               |
 
-`ListBackend` delegates entirely to `StreamQuery.apply()`. `SqliteBackend` translates the query into SQL and only falls back to Python for operations it can't express natively.
+`ListIndex` delegates entirely to `StreamQuery.apply()`. `SqliteIndex` translates the query into SQL and only falls back to Python for operations it can't express natively.
 
-Transform-sourced streams (post `.transform()`) always use `StreamQuery.apply()` since there's no backend to push down to.
+Transform-sourced streams (post `.transform()`) always use `StreamQuery.apply()` since there's no index to push down to.
 
 ## Quick start
 
@@ -77,39 +76,38 @@ Transform-sourced streams (post `.transform()`) always use `StreamQuery.apply()`
 from dimos.memory2 import MemoryStore
 
 store = MemoryStore()
-with store.session() as session:
-    images = session.stream("images")
+images = store.stream("images")
 
-    # Write
-    images.append(frame, ts=time.time(), pose=(x, y, z), tags={"camera": "front"})
+# Write
+images.append(frame, ts=time.time(), pose=(x, y, z), tags={"camera": "front"})
 
-    # Query
-    recent = images.after(t).limit(10).fetch()
-    nearest = images.near(pose, radius=2.0).fetch()
-    latest = images.last()
+# Query
+recent = images.after(t).limit(10).fetch()
+nearest = images.near(pose, radius=2.0).fetch()
+latest = images.last()
 
-    # Transform (class or bare generator function)
-    edges = images.transform(Canny()).save(session.stream("edges"))
+# Transform (class or bare generator function)
+edges = images.transform(Canny()).save(store.stream("edges"))
 
-    def running_avg(upstream):
-        total, n = 0.0, 0
-        for obs in upstream:
-            total += obs.data; n += 1
-            yield obs.derive(data=total / n)
-    avgs = stream.transform(running_avg).fetch()
+def running_avg(upstream):
+    total, n = 0.0, 0
+    for obs in upstream:
+        total += obs.data; n += 1
+        yield obs.derive(data=total / n)
+avgs = stream.transform(running_avg).fetch()
 
-    # Live
-    for obs in images.live().transform(process):
-        handle(obs)
+# Live
+for obs in images.live().transform(process):
+    handle(obs)
 
-    # Embed + search
-    images.transform(EmbedImages(clip)).save(session.stream("embedded"))
-    results = session.stream("embedded").search(query_vec, k=5).fetch()
+# Embed + search
+images.transform(EmbedImages(clip)).save(store.stream("embedded"))
+results = store.stream("embedded").search(query_vec, k=5).fetch()
 ```
 
 ## Implementations
 
-| Backend         | Status   | Storage                                |
+| Index           | Status   | Storage                                |
 |-----------------|----------|----------------------------------------|
-| `ListBackend`   | Complete | In-memory (lists + brute-force search) |
-| `SqliteBackend` | Complete | SQLite (WAL, FTS5, vec0)               |
+| `ListIndex`     | Complete | In-memory (lists + brute-force search) |
+| `SqliteIndex`   | Complete | SQLite (WAL, FTS5, vec0)               |

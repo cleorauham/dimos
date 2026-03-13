@@ -6,12 +6,11 @@
 from dimos.memory2.impl.sqlite import SqliteStore
 
 store = SqliteStore(path="/tmp/memory_readme.db")
-session = store.session()
 ```
 
 
 ```python session=memory ansi=false
-logs = session.stream("logs", str)
+logs = store.stream("logs", str)
 print(logs)
 ```
 
@@ -160,7 +159,7 @@ The embedded stream above was ephemeral — built on the fly for one query. To p
 ```python skip
 import threading
 
-embedded_logs = session.stream("embedded_logs", str)
+embedded_logs = store.stream("embedded_logs", str)
 threading.Thread(
     target=lambda: logs.live().transform(EmbedText(clip)).save(embedded_logs),
     daemon=True,
