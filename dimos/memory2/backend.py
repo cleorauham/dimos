@@ -68,8 +68,6 @@ class Backend(Generic[T]):
     def name(self) -> str:
         return self.metadata_store.name
 
-    # ── Write ────────────────────────────────────────────────────
-
     def _make_loader(self, row_id: int) -> Any:
         bs = self.blob_store
         if bs is None:
@@ -117,8 +115,6 @@ class Backend(Generic[T]):
 
         self.notifier.notify(obs)
         return obs
-
-    # ── Read ─────────────────────────────────────────────────────
 
     def iterate(self, query: StreamQuery) -> Iterator[Observation[T]]:
         if query.search_vec is not None and query.live_buffer is not None:
@@ -228,8 +224,6 @@ class Backend(Generic[T]):
         if query.search_vec:
             return sum(1 for _ in self.iterate(query))
         return self.metadata_store.count(query)
-
-    # ── Serialization ────────────────────────────────────────────
 
     def serialize(self) -> dict[str, Any]:
         """Serialize the fully-resolved backend config to a dict."""

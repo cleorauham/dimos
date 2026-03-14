@@ -66,15 +66,11 @@ class SqliteBlobStore(BlobStore):
         )
         self._tables.add(stream_name)
 
-    # ── Resource lifecycle ────────────────────────────────────────
-
     def start(self) -> None:
         if self._conn is None:
             assert self._path is not None
             self._conn = open_sqlite_connection(self._path)
             self.register_disposables(Disposable(action=lambda: self._conn.close()))
-
-    # ── BlobStore interface ───────────────────────────────────────
 
     def put(self, stream_name: str, key: int, data: bytes) -> None:
         self._ensure_table(stream_name)

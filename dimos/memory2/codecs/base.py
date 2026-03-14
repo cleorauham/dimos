@@ -46,9 +46,6 @@ def codec_for(payload_type: type[Any] | None = None) -> Codec[Any]:
     return PickleCodec()
 
 
-# ── Codec ID serialization ───────────────────────────────────────
-
-
 def codec_id(codec: Codec[Any]) -> str:
     """Derive a string ID from a codec instance, e.g. ``'lz4+lcm'``.
 

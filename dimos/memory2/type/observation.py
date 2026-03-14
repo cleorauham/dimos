@@ -26,9 +26,6 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-# ── Lazy data sentinel ──────────────────────────────────────────────
-
-
 class _Unloaded:
     """Sentinel indicating data has not been loaded yet."""
 
@@ -39,9 +36,6 @@ class _Unloaded:
 
 
 _UNLOADED = _Unloaded()
-
-
-# ── Observation ─────────────────────────────────────────────────────
 
 
 @dataclass
@@ -96,9 +90,6 @@ class Observation(Generic[T]):
             tags=overrides.get("tags", self.tags),
             _data=data,
         )
-
-
-# ── EmbeddedObservation ──────────────────────────────────────────
 
 
 @dataclass

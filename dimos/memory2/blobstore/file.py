@@ -46,15 +46,11 @@ class FileBlobStore(BlobStore):
         validate_identifier(stream_name)
         return self._root / stream_name / f"{key}.bin"
 
-    # ── Resource lifecycle ────────────────────────────────────────
-
     def start(self) -> None:
         self._root.mkdir(parents=True, exist_ok=True)
 
     def stop(self) -> None:
         pass
-
-    # ── BlobStore interface ───────────────────────────────────────
 
     def put(self, stream_name: str, key: int, data: bytes) -> None:
         p = self._path(stream_name, key)

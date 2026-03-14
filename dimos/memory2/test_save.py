@@ -26,8 +26,6 @@ from dimos.memory2.stream import Stream
 from dimos.memory2.transform import FnTransformer
 from dimos.memory2.type.observation import Observation
 
-# ── Helpers ──────────────────────────────────────────────────────────
-
 
 def _make_backend(name: str = "test") -> Backend[int]:
     return Backend(metadata_store=ListObservationStore[int](name), codec=PickleCodec())

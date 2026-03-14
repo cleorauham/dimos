@@ -35,9 +35,6 @@ if TYPE_CHECKING:
     from dimos.memory2.stream import Stream
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def make_stream(session) -> Generator[Callable[..., Stream[int]], None, None]:
     stream_index = 0

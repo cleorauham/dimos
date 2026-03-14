@@ -22,17 +22,12 @@ import pytest
 from dimos.memory2.type.observation import EmbeddedObservation, Observation
 from dimos.models.embedding.base import Embedding
 
-# ── Helpers ───────────────────────────────────────────────────────
-
 
 def _emb(vec: list[float]) -> Embedding:
     """Return a unit-normalized Embedding."""
     v = np.array(vec, dtype=np.float32)
     v /= np.linalg.norm(v) + 1e-10
     return Embedding(vector=v)
-
-
-# ── EmbeddedObservation ──────────────────────────────────────────
 
 
 class TestEmbeddedObservation:
@@ -78,9 +73,6 @@ class TestEmbeddedObservation:
         obs = Observation(id=0, ts=1.0, _data="plain")
         derived = obs.derive(data="still plain")
         assert type(derived) is Observation
-
-
-# ── ListBackend embedding support ────────────────────────────────
 
 
 class TestListBackendEmbedding:
@@ -157,9 +149,6 @@ class TestListBackendEmbedding:
             list(s.live().search(_emb([1, 0, 0]), k=5))
 
 
-# ── Text search ──────────────────────────────────────────────────
-
-
 class TestTextSearch:
     def test_search_text_substring(self, memory_store) -> None:
         s = memory_store.stream("logs", str)
@@ -197,9 +186,6 @@ class TestTextSearch:
         assert len(results) == 0
 
 
-# ── Save preserves embeddings ────────────────────────────────────
-
-
 class TestSaveEmbeddings:
     def test_save_preserves_embeddings(self, memory_store) -> None:
         src = memory_store.stream("source", str)
@@ -227,9 +213,6 @@ class TestSaveEmbeddings:
         assert len(results) == 2
         assert type(results[0]) is Observation
         assert isinstance(results[1], EmbeddedObservation)
-
-
-# ── Embed transformers (mock model) ─────────────────────────────
 
 
 class _MockEmbeddingModel:
@@ -331,9 +314,6 @@ class TestEmbedTransformers:
         list(s.transform(EmbedText(model, batch_size=2)))
         # 5 items with batch_size=2 → 3 calls (2, 2, 1)
         assert call_sizes == [2, 2, 1]
-
-
-# ── Pluggable VectorStore ────────────────────────────────────────
 
 
 class TestPluggableVectorStore:

@@ -26,8 +26,6 @@ from dimos.memory2.registry import RegistryStore, deserialize_component, qual
 from dimos.memory2.store.sqlite import SqliteStore
 from dimos.memory2.vectorstore.sqlite import SqliteVectorStore, SqliteVectorStoreConfig
 
-# ── qual() ───────────────────────────────────────────────────────
-
 
 class TestQual:
     def test_qual_blob_store(self) -> None:
@@ -41,9 +39,6 @@ class TestQual:
 
     def test_qual_notifier(self) -> None:
         assert qual(SubjectNotifier) == "dimos.memory2.notifier.subject.SubjectNotifier"
-
-
-# ── RegistryStore ────────────────────────────────────────────────
 
 
 class TestRegistryStore:
@@ -123,9 +118,6 @@ class TestRegistryStore:
         conn.close()
 
 
-# ── Component serialize/deserialize round-trips ─────────────────
-
-
 class TestComponentSerialization:
     def test_sqlite_observation_store_config(self) -> None:
         cfg = SqliteObservationStoreConfig(page_size=512)
@@ -181,9 +173,6 @@ class TestComponentSerialization:
         assert isinstance(restored, FileBlobStore)
 
 
-# ── Backend serialize round-trip ─────────────────────────────────
-
-
 class TestBackendSerialization:
     def test_backend_serialize(self, tmp_path) -> None:
         from dimos.memory2.backend import Backend
@@ -200,9 +189,6 @@ class TestBackendSerialization:
         assert data["codec_id"] == "pickle"
         assert data["blob_store"]["class"] == qual(FileBlobStore)
         assert data["notifier"]["class"] == qual(SubjectNotifier)
-
-
-# ── SqliteStore reopen with overrides ────────────────────────────
 
 
 class TestStoreReopen:

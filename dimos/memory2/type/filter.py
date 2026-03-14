@@ -27,9 +27,6 @@ if TYPE_CHECKING:
     from dimos.models.embedding.base import Embedding
 
 
-# ── Filter protocol ─────────────────────────────────────────────────
-
-
 @dataclass(frozen=True)
 class Filter(ABC):
     """Any object with a .matches(obs) -> bool method can be a filter."""
@@ -40,9 +37,6 @@ class Filter(ABC):
     def __str__(self) -> str:
         args = ", ".join(f"{f.name}={getattr(self, f.name)!r}" for f in fields(self))
         return f"{self.__class__.__name__}({args})"
-
-
-# ── Concrete filters ────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -126,9 +120,6 @@ class PredicateFilter(Filter):
 
     def matches(self, obs: Observation[Any]) -> bool:
         return bool(self.fn(obs))
-
-
-# ── StreamQuery ─────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)

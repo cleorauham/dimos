@@ -31,8 +31,6 @@ if TYPE_CHECKING:
 
     from dimos.msgs.protocol import DimosMsg
 
-# ── Case definition ────────────────────────────────────────────────
-
 
 @dataclass
 class Case:
@@ -40,9 +38,6 @@ class Case:
     codec: Codec[Any]
     values: list[Any]
     eq: Callable[[Any, Any], bool] | None = None  # custom equality: (original, decoded) -> bool
-
-
-# ── Test cases ─────────────────────────────────────────────────────
 
 
 def _lcm_values() -> list[DimosMsg]:
@@ -140,9 +135,6 @@ testcases = [
     for c in [_pickle_case(), _lcm_case(), _lz4_pickle_case(), _lz4_lcm_case(), _jpeg_case()]
     if c is not None
 ]
-
-
-# ── Tests ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("case", testcases, ids=lambda c: c.name)

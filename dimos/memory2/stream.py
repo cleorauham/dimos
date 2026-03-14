@@ -109,8 +109,6 @@ class Stream(Resource, Generic[T]):
             return self._source.is_live()
         return False
 
-    # ── Iteration ───────────────────────────────────────────────────
-
     def __iter__(self) -> Iterator[Observation[T]]:
         return self._build_iter()
 
@@ -125,8 +123,6 @@ class Stream(Resource, Generic[T]):
         assert isinstance(self._source, Stream) and self._xf is not None
         it: Iterator[Observation[T]] = self._xf(iter(self._source))
         return self._query.apply(it, live=self.is_live())
-
-    # ── Query builders ──────────────────────────────────────────────
 
     def _replace_query(self, **overrides: Any) -> Stream[T]:
         q = self._query
@@ -189,8 +185,6 @@ class Stream(Resource, Generic[T]):
         """
         return self._replace_query(search_text=text)
 
-    # ── Functional API ──────────────────────────────────────────────
-
     def filter(self, pred: Callable[[Observation[T]], bool]) -> Stream[T]:
         """Filter by arbitrary predicate on the full Observation."""
         return self._with_filter(PredicateFilter(pred))
@@ -198,8 +192,6 @@ class Stream(Resource, Generic[T]):
     def map(self, fn: Callable[[Observation[T]], Observation[R]]) -> Stream[R]:
         """Transform each observation's data via callable."""
         return self.transform(FnTransformer(lambda obs: fn(obs)))
-
-    # ── Transform ───────────────────────────────────────────────────
 
     def transform(
         self,
@@ -220,8 +212,6 @@ class Stream(Resource, Generic[T]):
             xf = FnIterTransformer(xf)
         return Stream(source=self, xf=xf, query=StreamQuery())
 
-    # ── Live mode ───────────────────────────────────────────────────
-
     def live(self, buffer: BackpressureBuffer[Observation[Any]] | None = None) -> Stream[T]:
         """Return a stream whose iteration never ends — backfill then live tail.
 
@@ -239,8 +229,6 @@ class Stream(Resource, Generic[T]):
         buf = buffer if buffer is not None else KeepLast()
         return self._replace_query(live_buffer=buf)
 
-    # ── Save ─────────────────────────────────────────────────────────
-
     def save(self, target: Stream[T]) -> Stream[T]:
         """Sync terminal: iterate self, append each obs to target's backend.
 
@@ -252,8 +240,6 @@ class Stream(Resource, Generic[T]):
         for obs in self:
             backend.append(obs)
         return target
-
-    # ── Terminals ───────────────────────────────────────────────────
 
     def fetch(self) -> list[Observation[T]]:
         """Materialize all observations into a list."""
@@ -321,8 +307,6 @@ class Stream(Resource, Generic[T]):
             n += 1
         return n
 
-    # ── Reactive ─────────────────────────────────────────────────────
-
     def observable(self) -> reactivex.Observable[Observation[T]]:
         """Convert this stream to an RxPY Observable.
 
@@ -350,8 +334,6 @@ class Stream(Resource, Generic[T]):
             on_error=on_error,
             on_completed=on_completed,
         )
-
-    # ── Write ───────────────────────────────────────────────────────
 
     def append(
         self,

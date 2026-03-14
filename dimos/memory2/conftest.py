@@ -35,9 +35,6 @@ if TYPE_CHECKING:
     from dimos.memory2.store.base import Store
 
 
-# ── Stores ────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def memory_store() -> Generator[MemoryStore, None, None]:
     with MemoryStore() as store:
@@ -72,9 +69,6 @@ def session(request: pytest.FixtureRequest) -> Store:
     now goes directly to Store.stream().
     """
     return request.getfixturevalue(request.param)
-
-
-# ── Blob Stores ───────────────────────────────────────────────────
 
 
 @pytest.fixture

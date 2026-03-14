@@ -30,8 +30,6 @@ from dimos.memory2.utils import open_sqlite_connection, validate_identifier
 from dimos.memory2.vectorstore.base import VectorStore
 from dimos.memory2.vectorstore.sqlite import SqliteVectorStore
 
-# ── SqliteStore ──────────────────────────────────────────────────
-
 
 class SqliteStoreConfig(StoreConfig):
     """Config for SQLite-backed store."""
@@ -54,8 +52,6 @@ class SqliteStore(Store):
     def _open_connection(self) -> sqlite3.Connection:
         """Open a new WAL-mode connection with sqlite-vec loaded."""
         return open_sqlite_connection(self.config.path)
-
-    # ── Backend from stored config (load path) ───────────────────
 
     def _assemble_backend(self, name: str, stored: dict[str, Any]) -> Backend[Any]:
         """Reconstruct a Backend from a stored config dict."""
@@ -121,8 +117,6 @@ class SqliteStore(Store):
         self.register_disposables(Disposable(action=lambda: backend_conn.close()))
         return backend
 
-    # ── Serialization helpers ────────────────────────────────────
-
     @staticmethod
     def _serialize_backend(
         backend: Backend[Any], payload_module: str, page_size: int
@@ -141,8 +135,6 @@ class SqliteStore(Store):
         if hasattr(backend.notifier, "_config"):
             cfg["notifier"] = backend.notifier.serialize()
         return cfg
-
-    # ── _create_backend ──────────────────────────────────────────
 
     def _create_backend(
         self, name: str, payload_type: type[Any] | None = None, **config: Any

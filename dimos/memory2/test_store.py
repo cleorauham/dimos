@@ -31,9 +31,6 @@ if TYPE_CHECKING:
     from dimos.memory2.store.base import Store
 
 
-# ── Tests ─────────────────────────────────────────────────────────
-
-
 class TestStoreBasic:
     """Core store operations that every backend must support."""
 
@@ -203,9 +200,6 @@ class TestStoreBasic:
         assert results[0].data == "motor fault"
 
 
-# ── Lazy / eager blob loading tests ──────────────────────────────
-
-
 class TestBlobLoading:
     """Verify lazy and eager blob loading paths."""
 
@@ -277,9 +271,6 @@ class TestBlobLoading:
         bs.stop()
 
 
-# ── Spy stores ───────────────────────────────────────────────────
-
-
 class SpyBlobStore(BlobStore):
     """BlobStore that records all calls for verification."""
 
@@ -337,9 +328,6 @@ class SpyVectorStore(VectorStore):
 
     def delete(self, stream: str, key: int) -> None:
         self.vectors.get(stream, {}).pop(key, None)
-
-
-# ── Spy delegation tests ─────────────────────────────────────────
 
 
 @pytest.fixture
@@ -426,9 +414,6 @@ class TestStoreDelegation:
         results = s.search(_emb([0, 1, 0]), k=2).fetch()
         assert len(vec_spy.searches) == 1
         assert results[0].data == "north"
-
-
-# ── Standalone component tests (path= mode, no Store) ────────────
 
 
 class TestStandaloneComponents:

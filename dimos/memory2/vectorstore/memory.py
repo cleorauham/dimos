@@ -33,15 +33,11 @@ class MemoryVectorStore(VectorStore):
         super().__init__()
         self._vectors: dict[str, dict[int, Embedding]] = {}
 
-    # ── Resource lifecycle ────────────────────────────────────────
-
     def start(self) -> None:
         pass
 
     def stop(self) -> None:
         pass
-
-    # ── VectorStore interface ────────────────────────────────────
 
     def put(self, stream_name: str, key: int, embedding: Embedding) -> None:
         self._vectors.setdefault(stream_name, {})[key] = embedding

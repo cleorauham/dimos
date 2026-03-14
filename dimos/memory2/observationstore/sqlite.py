@@ -48,9 +48,6 @@ T = TypeVar("T")
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-# ── Helpers ──────────────────────────────────────────────────────
-
-
 def _decompose_pose(pose: Any) -> tuple[float, ...] | None:
     if pose is None:
         return None
@@ -229,9 +226,6 @@ def _compile_count(
     return (sql, params, python_filters)
 
 
-# ── SqliteObservationStore ────────────────────────────────────────────────
-
-
 class SqliteObservationStoreConfig(BaseConfig):
     page_size: int = 256
 
@@ -345,8 +339,6 @@ class SqliteObservationStore(ObservationStore[T]):
             _data=_UNLOADED,
         )
 
-    # ── Write ────────────────────────────────────────────────────
-
     def _ensure_tag_indexes(self, tags: dict[str, Any]) -> None:
         for key in tags:
             if key not in self._tag_indexes and _IDENT_RE.match(key):
@@ -393,8 +385,6 @@ class SqliteObservationStore(ObservationStore[T]):
 
     def rollback(self) -> None:
         self._conn.rollback()
-
-    # ── Read ─────────────────────────────────────────────────────
 
     def query(self, q: StreamQuery) -> Iterator[Observation[T]]:
         if q.search_text is not None:
@@ -449,8 +439,6 @@ class SqliteObservationStore(ObservationStore[T]):
 
         rows = self._conn.execute(sql, ids).fetchall()
         return [self._row_to_obs(r, has_blob=join) for r in rows]
-
-    # ── Serialization ─────────────────────────────────────────────
 
     def serialize(self) -> dict[str, Any]:
         return {

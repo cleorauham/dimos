@@ -30,16 +30,11 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-# ── Helpers ───────────────────────────────────────────────────────
-
 
 def _emb(vec: list[float]) -> Embedding:
     v = np.array(vec, dtype=np.float32)
     v /= np.linalg.norm(v) + 1e-10
     return Embedding(vector=v)
-
-
-# ── Fixtures ─────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -54,9 +49,6 @@ def bs(tmp_path: Path) -> Generator[FileBlobStore, None, None]:
 def store(bs: FileBlobStore) -> Generator[MemoryStore, None, None]:
     with MemoryStore(blob_store=bs) as s:
         yield s
-
-
-# ── Tests ─────────────────────────────────────────────────────────
 
 
 class TestBlobStoreIntegration:
