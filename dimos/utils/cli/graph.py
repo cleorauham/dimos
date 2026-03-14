@@ -21,8 +21,8 @@ import os
 import shutil
 import sys
 import tempfile
-import webbrowser
 from typing import TYPE_CHECKING
+import webbrowser
 
 if TYPE_CHECKING:
     from dimos.core.blueprints import Blueprint
@@ -47,7 +47,7 @@ def _find_package_root(filepath: str) -> str | None:
     return None
 
 
-def _load_blueprints(python_file: str) -> list[tuple[str, "Blueprint"]]:
+def _load_blueprints(python_file: str) -> list[tuple[str, Blueprint]]:
     """Import *python_file* and return ``[(name, Blueprint), ...]``."""
     filepath = os.path.abspath(python_file)
     if not os.path.isfile(filepath):
@@ -91,16 +91,21 @@ def _build_html(python_file: str, *, show_disconnected: bool = True) -> str:
 
     sections = []
     all_label_colors: dict[str, str] = {}
+    all_disconnected: set[str] = set()
     for name, bp in blueprints:
-        mermaid_code, label_colors = mermaid_render(bp, show_disconnected=show_disconnected)
+        mermaid_code, label_colors, disconnected = mermaid_render(
+            bp, show_disconnected=show_disconnected
+        )
         all_label_colors.update(label_colors)
+        all_disconnected.update(disconnected)
         sections.append(
-            f'<h2>{name}</h2>\n'
+            f"<h2>{name}</h2>\n"
             f'<div class="viewport"><div class="canvas">'
             f'<pre class="mermaid">\n{mermaid_code}\n</pre>'
-            f'</div></div>'
+            f"</div></div>"
         )
     label_colors_json = json.dumps(all_label_colors)
+    disconnected_json = json.dumps(sorted(all_disconnected))
 
     return f"""\
 <!DOCTYPE html>
@@ -192,6 +197,7 @@ document.querySelectorAll('.viewport').forEach(vp => {{
 
     // Colour edge labels by matching text content to colour map
     const labelColors = {label_colors_json};
+    const disconnectedLabels = new Set({disconnected_json});
     svg.querySelectorAll('.edgeLabel').forEach(label => {{
         const text = (label.textContent || '').trim();
         const color = labelColors[text];
@@ -200,6 +206,14 @@ document.querySelectorAll('.viewport').forEach(vp => {{
             if (el.tagName === 'text') el.setAttribute('fill', color);
             else el.style.color = color;
         }});
+        // Dashed border for disconnected (dangling) stream labels
+        if (disconnectedLabels.has(text)) {{
+            label.querySelectorAll('span').forEach(span => {{
+                span.style.border = `dashed ${{color}} 1px`;
+                span.style.borderRadius = '4px';
+                span.style.padding = '2px 6px';
+            }});
+        }}
     }});
 
     function fitToView() {{

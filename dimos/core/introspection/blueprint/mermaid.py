@@ -22,55 +22,117 @@ Generates a Mermaid flowchart with direct labelled edges between modules:
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
-from dimos.core.blueprints import Blueprint
-from dimos.core.module import Module
+if TYPE_CHECKING:
+    from dimos.core.blueprints import Blueprint
+    from dimos.core.module import Module
 
-# Colour palettes
-_NODE_COLORS = [
-    "#1565c0",  # blue
-    "#c62828",  # red
-    "#2e7d32",  # green
-    "#6a1b9a",  # purple
-    "#d84315",  # burnt orange
-    "#00838f",  # teal
-    "#ad1457",  # pink
-    "#4527a0",  # deep purple
-    "#ef6c00",  # orange
-    "#00695c",  # dark teal
-    "#283593",  # indigo
-    "#9e9d24",  # olive
-    "#1565a0",  # steel blue
-    "#b71c1c",  # dark red
-    "#558b2f",  # lime green
-    "#6d4c41",  # brown
-    "#00796b",  # sea green
-    "#7b1fa2",  # violet
-    "#e65100",  # deep orange
-    "#0277bd",  # light blue
-]
-_EDGE_COLORS = [
-    "#4cc9f0",  # sky blue
-    "#f77f00",  # orange
-    "#80ed99",  # mint green
-    "#c77dff",  # lavender
-    "#ffd166",  # gold
-    "#ef476f",  # coral red
-    "#06d6a0",  # teal
-    "#3a86ff",  # bright blue
-    "#ff9e00",  # amber
-    "#e5383b",  # red
-    "#2ec4b6",  # cyan-teal
-    "#9b5de5",  # purple
-    "#00f5d4",  # aquamarine
-    "#fee440",  # yellow
-    "#f15bb5",  # magenta
-    "#00bbf9",  # cerulean
-    "#8ac926",  # lime green
-    "#ff595e",  # salmon
-    "#1982c4",  # steel blue
-    "#ffca3a",  # sunflower
-]
+# ---------------------------------------------------------------------------
+# Colour themes
+# ---------------------------------------------------------------------------
+# Each theme is a dict with "nodes" and "edges" colour lists.
+
+THEMES: dict[str, dict[str, list[str]]] = {
+    # Vivid — bold, high-contrast, maximally distinct
+    "vivid": {
+        "nodes": [
+            "#1565c0",  # blue
+            "#c62828",  # red
+            "#2e7d32",  # green
+            "#6a1b9a",  # purple
+            "#d84315",  # burnt orange
+            "#00838f",  # teal
+            "#ad1457",  # pink
+            "#4527a0",  # deep purple
+            "#ef6c00",  # orange
+            "#00695c",  # dark teal
+            "#283593",  # indigo
+            "#9e9d24",  # olive
+            "#1565a0",  # steel blue
+            "#b71c1c",  # dark red
+            "#558b2f",  # lime green
+            "#6d4c41",  # brown
+            "#00796b",  # sea green
+            "#7b1fa2",  # violet
+            "#e65100",  # deep orange
+            "#0277bd",  # light blue
+        ],
+        "edges": [
+            "#4cc9f0",  # sky blue
+            "#f77f00",  # orange
+            "#80ed99",  # mint green
+            "#c77dff",  # lavender
+            "#ffd166",  # gold
+            "#ef476f",  # coral red
+            "#06d6a0",  # teal
+            "#3a86ff",  # bright blue
+            "#ff9e00",  # amber
+            "#e5383b",  # red
+            "#2ec4b6",  # cyan-teal
+            "#9b5de5",  # purple
+            "#00f5d4",  # aquamarine
+            "#fee440",  # yellow
+            "#f15bb5",  # magenta
+            "#00bbf9",  # cerulean
+            "#8ac926",  # lime green
+            "#ff595e",  # salmon
+            "#1982c4",  # steel blue
+            "#ffca3a",  # sunflower
+        ],
+    },
+    # Tailwind — coordinated palette based on Tailwind CSS colour system.
+    # Nodes use the 700 shade (rich, readable with white text).
+    # Edges use the 400 shade (bright, high-visibility on dark backgrounds).
+    "tailwind": {
+        "nodes": [
+            "#1e40af",  # blue-800
+            "#991b1b",  # red-800
+            "#166534",  # green-800
+            "#5b21b6",  # violet-800
+            "#9a3412",  # orange-800
+            "#155e75",  # cyan-800
+            "#9d174d",  # pink-800
+            "#3730a3",  # indigo-800
+            "#854d0e",  # yellow-800
+            "#115e59",  # teal-800
+            "#9f1239",  # rose-800
+            "#3f6212",  # lime-800
+            "#075985",  # sky-800
+            "#86198f",  # fuchsia-800
+            "#065f46",  # emerald-800
+            "#6b21a8",  # purple-800
+            "#92400e",  # amber-800
+            "#0c4a6e",  # sky-900
+            "#881337",  # rose-900
+            "#365314",  # lime-900
+        ],
+        "edges": [
+            "#60a5fa",  # blue-400
+            "#f87171",  # red-400
+            "#4ade80",  # green-400
+            "#a78bfa",  # violet-400
+            "#fb923c",  # orange-400
+            "#22d3ee",  # cyan-400
+            "#f472b6",  # pink-400
+            "#818cf8",  # indigo-400
+            "#facc15",  # yellow-400
+            "#2dd4bf",  # teal-400
+            "#fb7185",  # rose-400
+            "#a3e635",  # lime-400
+            "#38bdf8",  # sky-400
+            "#e879f9",  # fuchsia-400
+            "#34d399",  # emerald-400
+            "#c084fc",  # purple-400
+            "#fbbf24",  # amber-400
+            "#67e8f9",  # cyan-300
+            "#fda4af",  # rose-300
+            "#bef264",  # lime-300
+        ],
+    },
+}
+
+DEFAULT_THEME = "tailwind"
 
 
 class _ColorAssigner:
@@ -111,11 +173,16 @@ def render(
     ignored_streams: set[tuple[str, str]] | None = None,
     ignored_modules: set[str] | None = None,
     show_disconnected: bool = False,
-) -> tuple[str, dict[str, str]]:
+    theme: str = DEFAULT_THEME,
+) -> tuple[str, dict[str, str], set[str]]:
     """Generate a Mermaid flowchart from a Blueprint.
 
-    Returns ``(mermaid_code, label_color_map)`` where *label_color_map* maps
-    each edge label string to its hex colour.
+    Returns ``(mermaid_code, label_color_map, disconnected_labels)`` where
+    *label_color_map* maps each edge label string to its hex colour and
+    *disconnected_labels* is the set of labels for dangling streams.
+
+    Args:
+        theme: Colour theme name (one of ``THEMES`` keys).
     """
     if ignored_streams is None:
         ignored_streams = DEFAULT_IGNORED_CONNECTIONS
@@ -135,9 +202,7 @@ def render(
             continue
         module_names.add(bp.module.__name__)
         for conn in bp.streams:
-            remapped_name = blueprint_set.remapping_map.get(
-                (bp.module, conn.name), conn.name
-            )
+            remapped_name = blueprint_set.remapping_map.get((bp.module, conn.name), conn.name)
             key = (remapped_name, conn.type)
             if conn.direction == "out":
                 producers[key].append(bp.module)
@@ -172,8 +237,9 @@ def render(
                 continue
             disconnected_keys.append(key)
 
-    node_color = _ColorAssigner(_NODE_COLORS)
-    edge_color = _ColorAssigner(_EDGE_COLORS)
+    palette = THEMES.get(theme, THEMES[DEFAULT_THEME])
+    node_color = _ColorAssigner(palette["nodes"])
+    edge_color = _ColorAssigner(palette["edges"])
 
     lines = ["graph LR"]
 
@@ -208,6 +274,7 @@ def render(
                 edge_idx += 1
 
     # Disconnected edges
+    disconnected_labels: set[str] = set()
     if disconnected_keys:
         lines.append("")
         lines.append("    %% Disconnected streams")
@@ -217,6 +284,7 @@ def render(
             label = f"{name}:{type_.__name__}"
             color = edge_color(label)
             label_color_map[label] = color
+            disconnected_labels.add(label)
             stub_id = f"stub{stub_counter}"
             stub_counter += 1
             lines.append(f"    {stub_id}(( ))")
@@ -242,9 +310,7 @@ def render(
     for mod_name in sorted_modules:
         mid = _mermaid_id(mod_name)
         c = node_color(mod_name)
-        lines.append(
-            f"    style {mid} fill:{c},stroke:{c},color:#eee,stroke-width:2px"
-        )
+        lines.append(f"    style {mid} fill:{c},stroke:{c},color:#eee,stroke-width:2px")
 
     # Edge styles (one linkStyle per edge index)
     if edge_colors:
@@ -252,4 +318,4 @@ def render(
         for i, c in enumerate(edge_colors):
             lines.append(f"    linkStyle {i} stroke:{c},stroke-width:2px")
 
-    return "\n".join(lines), label_color_map
+    return "\n".join(lines), label_color_map, disconnected_labels
