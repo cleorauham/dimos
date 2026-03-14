@@ -26,7 +26,8 @@ from dimos.memory2.codecs.base import codec_id
 from dimos.memory2.observationstore.sqlite import SqliteObservationStore
 from dimos.memory2.registry import RegistryStore, deserialize_component, qual
 from dimos.memory2.store.base import Store, StoreConfig
-from dimos.memory2.utils import open_sqlite_connection, validate_identifier
+from dimos.memory2.utils.sqlite import open_sqlite_connection
+from dimos.memory2.utils.validation import validate_identifier
 from dimos.memory2.vectorstore.base import VectorStore
 from dimos.memory2.vectorstore.sqlite import SqliteVectorStore
 

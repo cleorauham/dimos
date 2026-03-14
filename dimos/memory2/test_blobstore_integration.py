@@ -117,7 +117,7 @@ class TestBlobStoreIntegration:
             assert obs.data == "inline"
 
     def test_blobstore_with_vector_search(self, bs: FileBlobStore) -> None:
-        from dimos.memory2.vectorstore import MemoryVectorStore
+        from dimos.memory2.vectorstore.memory import MemoryVectorStore
 
         vs = MemoryVectorStore()
         with MemoryStore(blob_store=bs, vector_store=vs) as store:

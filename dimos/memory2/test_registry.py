@@ -43,7 +43,7 @@ class TestQual:
 
 class TestRegistryStore:
     def test_put_get_round_trip(self, tmp_path) -> None:
-        from dimos.memory2.utils import open_sqlite_connection
+        from dimos.memory2.utils.sqlite import open_sqlite_connection
 
         conn = open_sqlite_connection(str(tmp_path / "reg.db"))
         reg = RegistryStore(conn)
@@ -55,7 +55,7 @@ class TestRegistryStore:
         conn.close()
 
     def test_get_missing(self, tmp_path) -> None:
-        from dimos.memory2.utils import open_sqlite_connection
+        from dimos.memory2.utils.sqlite import open_sqlite_connection
 
         conn = open_sqlite_connection(str(tmp_path / "reg.db"))
         reg = RegistryStore(conn)
@@ -63,7 +63,7 @@ class TestRegistryStore:
         conn.close()
 
     def test_list_streams(self, tmp_path) -> None:
-        from dimos.memory2.utils import open_sqlite_connection
+        from dimos.memory2.utils.sqlite import open_sqlite_connection
 
         conn = open_sqlite_connection(str(tmp_path / "reg.db"))
         reg = RegistryStore(conn)
@@ -73,7 +73,7 @@ class TestRegistryStore:
         conn.close()
 
     def test_delete(self, tmp_path) -> None:
-        from dimos.memory2.utils import open_sqlite_connection
+        from dimos.memory2.utils.sqlite import open_sqlite_connection
 
         conn = open_sqlite_connection(str(tmp_path / "reg.db"))
         reg = RegistryStore(conn)
@@ -83,7 +83,7 @@ class TestRegistryStore:
         conn.close()
 
     def test_upsert(self, tmp_path) -> None:
-        from dimos.memory2.utils import open_sqlite_connection
+        from dimos.memory2.utils.sqlite import open_sqlite_connection
 
         conn = open_sqlite_connection(str(tmp_path / "reg.db"))
         reg = RegistryStore(conn)
@@ -94,7 +94,7 @@ class TestRegistryStore:
 
     def test_migrate_legacy_schema(self, tmp_path) -> None:
         """RegistryStore migrates old (name, payload_module, codec_id) tables."""
-        from dimos.memory2.utils import open_sqlite_connection
+        from dimos.memory2.utils.sqlite import open_sqlite_connection
 
         conn = open_sqlite_connection(str(tmp_path / "legacy.db"))
         conn.execute(

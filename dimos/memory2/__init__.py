@@ -10,8 +10,8 @@ from dimos.memory2.buffer import (
     Unbounded,
 )
 from dimos.memory2.embed import EmbedImages, EmbedText
-from dimos.memory2.notifier import SubjectNotifier
 from dimos.memory2.notifier.base import Notifier
+from dimos.memory2.notifier.subject import SubjectNotifier
 from dimos.memory2.observationstore.base import ObservationStore
 from dimos.memory2.observationstore.memory import ListObservationStore
 from dimos.memory2.observationstore.sqlite import (

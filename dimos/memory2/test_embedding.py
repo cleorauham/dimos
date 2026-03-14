@@ -321,7 +321,7 @@ class TestPluggableVectorStore:
 
     def test_append_stores_in_vector_store(self) -> None:
         from dimos.memory2.store.memory import MemoryStore
-        from dimos.memory2.vectorstore import MemoryVectorStore
+        from dimos.memory2.vectorstore.memory import MemoryVectorStore
 
         vs = MemoryVectorStore()
         with MemoryStore(vector_store=vs) as store:
@@ -333,7 +333,7 @@ class TestPluggableVectorStore:
 
     def test_append_without_embedding_skips_vector_store(self) -> None:
         from dimos.memory2.store.memory import MemoryStore
-        from dimos.memory2.vectorstore import MemoryVectorStore
+        from dimos.memory2.vectorstore.memory import MemoryVectorStore
 
         vs = MemoryVectorStore()
         with MemoryStore(vector_store=vs) as store:
@@ -344,7 +344,7 @@ class TestPluggableVectorStore:
 
     def test_search_uses_vector_store(self) -> None:
         from dimos.memory2.store.memory import MemoryStore
-        from dimos.memory2.vectorstore import MemoryVectorStore
+        from dimos.memory2.vectorstore.memory import MemoryVectorStore
 
         vs = MemoryVectorStore()
         with MemoryStore(vector_store=vs) as store:
@@ -362,7 +362,7 @@ class TestPluggableVectorStore:
 
     def test_search_with_filters_via_vector_store(self) -> None:
         from dimos.memory2.store.memory import MemoryStore
-        from dimos.memory2.vectorstore import MemoryVectorStore
+        from dimos.memory2.vectorstore.memory import MemoryVectorStore
 
         vs = MemoryVectorStore()
         with MemoryStore(vector_store=vs) as store:
@@ -377,7 +377,7 @@ class TestPluggableVectorStore:
 
     def test_per_stream_vector_store_override(self) -> None:
         from dimos.memory2.store.memory import MemoryStore
-        from dimos.memory2.vectorstore import MemoryVectorStore
+        from dimos.memory2.vectorstore.memory import MemoryVectorStore
 
         vs_default = MemoryVectorStore()
         vs_override = MemoryVectorStore()

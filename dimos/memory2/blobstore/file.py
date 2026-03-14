@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dimos.memory2.blobstore.base import BlobStore
-from dimos.memory2.utils import validate_identifier
+from dimos.memory2.utils.validation import validate_identifier
 from dimos.protocol.service.spec import BaseConfig
 
 if TYPE_CHECKING:

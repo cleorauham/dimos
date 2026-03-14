@@ -35,7 +35,7 @@ from dimos.memory2.type.filter import (
     _xyz,
 )
 from dimos.memory2.type.observation import _UNLOADED, Observation
-from dimos.memory2.utils import open_sqlite_connection
+from dimos.memory2.utils.sqlite import open_sqlite_connection
 from dimos.protocol.service.spec import BaseConfig
 
 if TYPE_CHECKING:
