@@ -37,7 +37,9 @@ from typing import TYPE_CHECKING
 from dimos.core.native_module import NativeModule, NativeModuleConfig
 from dimos.core.stream import In, Out
 from dimos.msgs.nav_msgs.Odometry import Odometry
+from dimos.msgs.nav_msgs.Path import Path as NavPath
 from dimos.msgs.sensor_msgs.Image import Image
+from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
 from dimos.spec import perception
 
 _MODULE_DIR = Path(__file__).parent
@@ -58,7 +60,7 @@ class OrbSlam3Config(NativeModuleConfig):
     cwd: str | None = str(_MODULE_DIR)
     executable: str = "result/bin/orbslam3_native"
     build_command: str | None = (
-        "nix build github:dimensionalOS/dimos-orb-slam3/v0.1.0 --no-write-lock-file"
+        "nix build github:dimensionalOS/dimos-orb-slam3/v0.2.0 --no-write-lock-file"
     )
 
     # ORB-SLAM3 sensor mode
@@ -79,6 +81,9 @@ class OrbSlam3Config(NativeModuleConfig):
     # Vocabulary path (None = use compiled-in default from nix build)
     vocab_path: str | None = None
 
+    # How often to publish map points and keyframe path (every N frames)
+    map_publish_interval: int = 10
+
 
 class OrbSlam3(NativeModule[OrbSlam3Config], perception.Odometry):
     """ORB-SLAM3 visual SLAM module.
@@ -86,11 +91,17 @@ class OrbSlam3(NativeModule[OrbSlam3Config], perception.Odometry):
     Ports:
         color_image (In[Image]): Camera frames to track.
         odometry (Out[Odometry]): Camera pose as nav_msgs.Odometry.
+        keypoints_image (Out[Image]): Color image with tracked keypoints overlay.
+        map_points (Out[PointCloud2]): Sparse 3D map points.
+        keyframe_path (Out[NavPath]): Keyframe pose graph as a path.
     """
 
     default_config = OrbSlam3Config
     color_image: In[Image]
     odometry: Out[Odometry]
+    keypoints_image: Out[Image]
+    map_points: Out[PointCloud2]
+    keyframe_path: Out[NavPath]
 
 
 orbslam3_module = OrbSlam3.blueprint
