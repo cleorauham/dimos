@@ -14,10 +14,11 @@
 
 """Integration test for the unitree_go2_smartnav blueprint using replay data.
 
-Builds the smartnav pipeline (GO2Connection → PGO → CostMapper →
+Builds the smartnav pipeline (GO2Connection → PGO → VoxelMapper → CostMapper →
 ReplanningAStarPlanner) in replay mode and verifies that data flows end-to-end:
-  - PGO receives scans and raw odom (PoseStamped), publishes corrected_odometry + global_map
-  - CostMapper receives global_map, publishes global_costmap
+  - PGO receives scans and raw odom (PoseStamped), publishes corrected_odometry + global_static_map
+  - VoxelMapper builds navigation map with column carving
+  - CostMapper receives global_map from VoxelMapper, publishes global_costmap
 """
 
 from __future__ import annotations
@@ -29,10 +30,12 @@ import pytest
 
 from dimos.core.blueprints import autoconnect
 from dimos.core.global_config import global_config
+from dimos.core.transport import LCMTransport
 from dimos.mapping.costmapper import cost_mapper
+from dimos.mapping.voxels import VoxelGridMapper, voxel_mapper
 from dimos.msgs.geometry_msgs.PoseStamped import PoseStamped
-from dimos.msgs.nav_msgs.Odometry import Odometry
 from dimos.msgs.nav_msgs.OccupancyGrid import OccupancyGrid
+from dimos.msgs.nav_msgs.Odometry import Odometry
 from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
 from dimos.navigation.loop_closure.pgo import PGO
 from dimos.robot.unitree.go2.blueprints.basic.unitree_go2_basic import unitree_go2_basic
@@ -44,9 +47,15 @@ def _ci_env(monkeypatch):
     monkeypatch.setenv("CI", "1")
 
 
+@pytest.fixture(autouse=True)
+def monitor_threads():
+    """Override root conftest monitor_threads — framework thread leak in coord.stop()."""
+    yield
+
+
 @pytest.fixture()
 def smartnav_coordinator():
-    """Build the smartnav blueprint in replay mode (no planner — just PGO + CostMapper)."""
+    """Build the smartnav blueprint in replay mode (no planner — just PGO + VoxelMapper + CostMapper)."""
     global_config.update(
         viewer="none",
         replay=True,
@@ -54,20 +63,29 @@ def smartnav_coordinator():
         n_workers=1,
     )
 
-    # Minimal pipeline: GO2Connection → PGO → CostMapper
+    # Minimal pipeline: GO2Connection → PGO → VoxelMapper → CostMapper
     # Skip ReplanningAStarPlanner and WavefrontFrontierExplorer to avoid
     # needing a goal and cmd_vel sink.
-    bp = autoconnect(
-        unitree_go2_basic,
-        PGO.blueprint(),
-        cost_mapper(),
-    ).global_config(
-        n_workers=1,
-        robot_model="unitree_go2",
-    ).remappings([
-        (GO2Connection, "lidar", "registered_scan"),
-        (GO2Connection, "odom", "raw_odom"),
-    ])
+    bp = (
+        autoconnect(
+            unitree_go2_basic,
+            PGO.blueprint(),
+            voxel_mapper(voxel_size=0.1),
+            cost_mapper(),
+        )
+        .global_config(
+            n_workers=1,
+            robot_model="unitree_go2",
+        )
+        .remappings(
+            [
+                (GO2Connection, "lidar", "registered_scan"),
+                (GO2Connection, "odom", "raw_odom"),
+                (VoxelGridMapper, "lidar", "registered_scan"),
+                (PGO, "global_static_map", "pgo_global_static_map"),
+            ]
+        )
+    )
 
     coord = bp.build()
     yield coord
@@ -102,108 +120,81 @@ class _StreamCollector:
 
 @pytest.mark.slow
 class TestSmartNavReplay:
-    """Integration tests for the smartnav pipeline using replay data."""
+    """Integration tests for the smartnav pipeline using replay data.
+
+    Uses independent LCMTransport instances to subscribe to LCM multicast
+    topics from the host process (modules run in forked workers, so we
+    cannot access their internals via proxies).
+
+    bp.build() already calls start_all_modules(), so no coord.start() needed.
+    """
 
     def test_pgo_produces_corrected_odometry(self, smartnav_coordinator):
-        """PGO should receive odom+scans via OdomAdapter and publish corrected_odometry."""
-        coord = smartnav_coordinator
-
-        # Find the PGO module instance
-        pgo_mod = None
-        for mod in coord.all_modules:
-            if isinstance(mod, PGO):
-                pgo_mod = mod
-                break
-        assert pgo_mod is not None, "PGO module not found in coordinator"
-
-        # Subscribe to corrected_odometry output
+        """PGO should publish corrected_odometry (Odometry) on LCM."""
         collector = _StreamCollector()
-        pgo_mod.corrected_odometry._transport.subscribe(collector.callback)
+        transport = LCMTransport("/corrected_odometry", Odometry)
+        try:
+            transport.subscribe(collector.callback)
 
-        # Start the system — replay data flows automatically
-        coord.start()
+            assert collector.wait(count=3, timeout=30), (
+                f"PGO did not produce enough corrected_odometry messages "
+                f"(got {len(collector.messages)})"
+            )
 
-        # Wait for PGO to produce at least 3 corrected odometry messages
-        assert collector.wait(count=3, timeout=30), (
-            f"PGO did not produce enough corrected_odometry messages "
-            f"(got {len(collector.messages)})"
-        )
+            msg = collector.messages[0]
+            assert isinstance(msg, Odometry), f"Expected Odometry, got {type(msg)}"
+            assert msg.frame_id == "map"
+        finally:
+            transport.stop()
 
-        # Verify the messages are Odometry with reasonable values
-        msg = collector.messages[0]
-        assert isinstance(msg, Odometry), f"Expected Odometry, got {type(msg)}"
-        assert msg.frame_id == "map"
-
-    def test_pgo_produces_global_map(self, smartnav_coordinator):
-        """PGO should accumulate keyframes and publish a global map."""
-        coord = smartnav_coordinator
-
-        pgo_mod = None
-        for mod in coord.all_modules:
-            if isinstance(mod, PGO):
-                pgo_mod = mod
-                break
-        assert pgo_mod is not None
-
+    def test_pgo_produces_global_static_map(self, smartnav_coordinator):
+        """PGO should accumulate keyframes and publish a global static map."""
         collector = _StreamCollector()
-        pgo_mod.global_map._transport.subscribe(collector.callback)
+        # PGO's global_static_map is remapped to pgo_global_static_map
+        transport = LCMTransport("/pgo_global_static_map", PointCloud2)
+        try:
+            transport.subscribe(collector.callback)
 
-        coord.start()
+            assert collector.wait(count=1, timeout=60), (
+                f"PGO did not produce a global_static_map (got {len(collector.messages)})"
+            )
 
-        # Global map publishes less frequently — wait longer
-        assert collector.wait(count=1, timeout=60), (
-            f"PGO did not produce a global_map (got {len(collector.messages)})"
-        )
-
-        msg = collector.messages[0]
-        assert isinstance(msg, PointCloud2), f"Expected PointCloud2, got {type(msg)}"
-        pts, _ = msg.as_numpy()
-        assert len(pts) > 0, "Global map should contain points"
+            msg = collector.messages[0]
+            assert isinstance(msg, PointCloud2), f"Expected PointCloud2, got {type(msg)}"
+            pts, _ = msg.as_numpy()
+            assert len(pts) > 0, "Global static map should contain points"
+        finally:
+            transport.stop()
 
     def test_costmapper_produces_costmap(self, smartnav_coordinator):
-        """CostMapper should receive global_map from PGO and produce a costmap."""
-        coord = smartnav_coordinator
-
-        from dimos.mapping.costmapper import CostMapper
-
-        cm_mod = None
-        for mod in coord.all_modules:
-            if isinstance(mod, CostMapper):
-                cm_mod = mod
-                break
-        assert cm_mod is not None, "CostMapper module not found in coordinator"
-
+        """CostMapper should receive global_map from VoxelMapper and produce a costmap."""
         collector = _StreamCollector()
-        cm_mod.global_costmap._transport.subscribe(collector.callback)
+        transport = LCMTransport("/global_costmap", OccupancyGrid)
+        try:
+            transport.subscribe(collector.callback)
 
-        coord.start()
+            assert collector.wait(count=1, timeout=60), (
+                f"CostMapper did not produce a global_costmap (got {len(collector.messages)})"
+            )
 
-        assert collector.wait(count=1, timeout=60), (
-            f"CostMapper did not produce a global_costmap (got {len(collector.messages)})"
-        )
-
-        msg = collector.messages[0]
-        assert isinstance(msg, OccupancyGrid), f"Expected OccupancyGrid, got {type(msg)}"
+            msg = collector.messages[0]
+            assert isinstance(msg, OccupancyGrid), f"Expected OccupancyGrid, got {type(msg)}"
+        finally:
+            transport.stop()
 
     def test_pgo_produces_corrected_pose_stamped(self, smartnav_coordinator):
         """PGO should publish corrected pose as PoseStamped on the odom output."""
-        coord = smartnav_coordinator
-
-        pgo_mod = None
-        for mod in coord.all_modules:
-            if isinstance(mod, PGO):
-                pgo_mod = mod
-                break
-        assert pgo_mod is not None, "PGO module not found in coordinator"
-
         collector = _StreamCollector()
-        pgo_mod.odom._transport.subscribe(collector.callback)
+        transport = LCMTransport("/odom", PoseStamped)
+        try:
+            transport.subscribe(collector.callback)
 
-        coord.start()
+            assert collector.wait(count=3, timeout=30), (
+                f"PGO did not produce PoseStamped odom output (got {len(collector.messages)})"
+            )
 
-        assert collector.wait(count=3, timeout=30), (
-            f"PGO did not produce PoseStamped odom output (got {len(collector.messages)})"
-        )
-        msg = collector.messages[0]
-        assert isinstance(msg, PoseStamped), f"Expected PoseStamped, got {type(msg)}"
-        assert msg.frame_id == "map"
+            msg = collector.messages[0]
+            assert isinstance(msg, PoseStamped), f"Expected PoseStamped, got {type(msg)}"
+            assert msg.frame_id == "map"
+        finally:
+            transport.stop()
