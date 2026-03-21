@@ -26,6 +26,7 @@ from dimos.memory2.blobstore.file import FileBlobStore
 from dimos.memory2.blobstore.sqlite import SqliteBlobStore
 from dimos.memory2.store.memory import MemoryStore
 from dimos.memory2.store.sqlite import SqliteStore
+from dimos.models.embedding.clip import CLIPModel
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -33,6 +34,11 @@ if TYPE_CHECKING:
 
     from dimos.memory2.blobstore.base import BlobStore
     from dimos.memory2.store.base import Store
+
+
+@pytest.fixture(scope="module")
+def clip() -> CLIPModel:
+    return CLIPModel()
 
 
 @pytest.fixture
@@ -86,4 +92,5 @@ def sqlite_blob_store() -> Iterator[SqliteBlobStore]:
 
 @pytest.fixture(params=["file_blob_store", "sqlite_blob_store"])
 def blob_store(request: pytest.FixtureRequest) -> BlobStore:
+    return request.getfixturevalue(request.param)
     return request.getfixturevalue(request.param)
