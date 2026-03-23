@@ -19,7 +19,6 @@ from __future__ import annotations
 import math
 import os
 import threading
-from typing import Optional
 
 import pygame
 
@@ -47,7 +46,7 @@ class DoomTeleop(Module):
     _keys_held: set[int] | None = None
     _mouse_buttons_held: set[int] | None = None
     _has_focus: bool = True
-    _current_pose: Optional[PoseStamped] = None
+    _current_pose: PoseStamped | None = None
 
     _base_linear_speed: float = 0.6
     _base_angular_speed: float = 1.2
@@ -255,9 +254,7 @@ class DoomTeleop(Module):
             y_pos += 26
 
         moving = (
-            abs(twist.linear.x) > 1e-3
-            or abs(twist.linear.y) > 1e-3
-            or abs(twist.angular.z) > 1e-3
+            abs(twist.linear.x) > 1e-3 or abs(twist.linear.y) > 1e-3 or abs(twist.angular.z) > 1e-3
         )
         color = (255, 0, 0) if moving else (0, 200, 0)
         pygame.draw.circle(self._screen, color, (600, 30), 12)
