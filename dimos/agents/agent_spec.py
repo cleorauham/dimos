@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Copyright 2026 Dimensional Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,3 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from typing import Any, Protocol
+
+from langchain_core.messages.base import BaseMessage
+
+from dimos.spec.utils import Spec
+
+
+class AgentSpec(Spec, Protocol):
+    def add_message(self, message: BaseMessage) -> None: ...
+    def dispatch_continuation(
+        self, continuation: dict[str, Any], continuation_context: dict[str, Any]
+    ) -> None: ...
