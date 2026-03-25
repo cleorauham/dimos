@@ -77,6 +77,7 @@ def _load_blueprints(python_file: str) -> list[tuple[str, Blueprint]]:
     if not blueprints:
         raise RuntimeError("No Blueprint instances found in module globals.")
 
+    blueprints.reverse()
     print(f"Found {len(blueprints)} blueprint(s): {', '.join(n for n, _ in blueprints)}")
     return blueprints
 
@@ -406,8 +407,34 @@ h2 {{ border-bottom: 1px solid #444; padding-bottom: 0.3em; }}
 </body></html>"""
 
 
-def main(python_file: str, *, show_disconnected: bool = True, port: int = 0) -> None:
+def _build_markdown(python_file: str, *, show_disconnected: bool = True) -> str:
+    """Return Mermaid markdown for all blueprints in *python_file*."""
+    from dimos.core.introspection.blueprint.mermaid import render as mermaid_render
+
+    blueprints = _load_blueprints(python_file)
+
+    sections: list[str] = []
+    for name, bp in blueprints:
+        mermaid_code, _label_colors, _disconnected = mermaid_render(
+            bp, show_disconnected=show_disconnected
+        )
+        sections.append(f"## {name}\n\n```mermaid\n{mermaid_code}\n```")
+
+    return "\n\n".join(sections)
+
+
+def main(
+    python_file: str,
+    *,
+    show_disconnected: bool = True,
+    port: int = 0,
+    markdown: bool = False,
+) -> None:
     """Render Blueprint SVG diagrams and display them via a one-shot HTTP server."""
+    if markdown:
+        print(_build_markdown(python_file, show_disconnected=show_disconnected))
+        return
+
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
     html = _build_html(python_file, show_disconnected=show_disconnected)
