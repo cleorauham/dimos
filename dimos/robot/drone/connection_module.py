@@ -22,6 +22,7 @@ import time
 from typing import Any
 
 from dimos_lcm.std_msgs import String
+from reactivex.disposable import Disposable
 
 from dimos.agents.annotation import skill
 from dimos.core.core import rpc
@@ -137,17 +138,19 @@ class DroneConnectionModule(Module[Config]):
         )
 
         # Subscribe to movement commands
-        self.register_disposable(self.movecmd.subscribe(self.move))
+        self.register_disposable(Disposable(self.movecmd.subscribe(self.move)))
 
         # Subscribe to Twist movement commands
         if self.movecmd_twist.transport:
-            self.register_disposable(self.movecmd_twist.subscribe(self._on_move_twist))
+            self.register_disposable(Disposable(self.movecmd_twist.subscribe(self._on_move_twist)))
 
         if self.gps_goal.transport:
-            self.register_disposable(self.gps_goal.subscribe(self._on_gps_goal))
+            self.register_disposable(Disposable(self.gps_goal.subscribe(self._on_gps_goal)))
 
         if self.tracking_status.transport:
-            self.register_disposable(self.tracking_status.subscribe(self._on_tracking_status))
+            self.register_disposable(
+                Disposable(self.tracking_status.subscribe(self._on_tracking_status))
+            )
 
         # Start telemetry update thread
         import threading

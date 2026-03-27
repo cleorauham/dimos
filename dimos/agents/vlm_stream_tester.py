@@ -16,6 +16,7 @@ import threading
 import time
 
 from langchain_core.messages import AIMessage, HumanMessage
+from reactivex.disposable import Disposable
 
 from dimos.core.core import rpc
 from dimos.core.module import Module
@@ -62,8 +63,8 @@ class VlmStreamTester(Module):
     @rpc
     def start(self) -> None:
         super().start()
-        self.register_disposable(self.color_image.subscribe(self._on_image))  # type: ignore[arg-type]
-        self.register_disposable(self.answer_stream.subscribe(self._on_answer))  # type: ignore[arg-type]
+        self.register_disposable(Disposable(self.color_image.subscribe(self._on_image)))
+        self.register_disposable(Disposable(self.answer_stream.subscribe(self._on_answer)))
         self._worker = threading.Thread(target=self._run_queries, daemon=True)
         self._worker.start()
 
