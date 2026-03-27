@@ -62,8 +62,8 @@ def _default_message_to_choice(msg: TwitchMessage, choices: list[str]) -> str | 
 class TwitchVotesConfig(TwitchChatConfig):
     # A vote is only counted if message_to_choice returns one of these.
     choices: list[str] = ["forward", "back", "left", "right", "stop"]
-    # (msg, choices) -> choice string or None
-    message_to_choice: Callable[[TwitchMessage, list[str]], str | None] = _default_message_to_choice
+    # (msg, choices) -> choice string, or any falsy value to skip
+    message_to_choice: Callable[[TwitchMessage, list[str]], Any] = _default_message_to_choice
 
     vote_window_seconds: float = 5.0
     min_votes_threshold: int = 1
@@ -146,41 +146,18 @@ class TwitchVotes(TwitchChat):
         self._votes: deque[tuple[str, float, str]] = deque()
         self._votes_lock = threading.Lock()
         self._vote_thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
         self._valid_choices: frozenset[str] = frozenset()
 
-    def _handle_message(self, message: Any) -> None:
-        super()._handle_message(message)
-
-        content: str = message.content or ""
-        author = message.author.name if message.author else "anonymous"
-
-        # Build a TwitchMessage for the callback's second arg
-        badges: dict[str, str] = {}
-        if message.tags and "badges" in message.tags:
-            raw_badges = message.tags["badges"]
-            if raw_badges:
-                for badge in raw_badges.split(","):
-                    parts = badge.split("/", 1)
-                    if len(parts) == 2:
-                        badges[parts[0]] = parts[1]
-
-        msg = TwitchMessage(
-            author=author,
-            content=content,
-            channel=message.channel.name if message.channel else "",
-            timestamp=time.time(),
-            is_subscriber="subscriber" in badges,
-            is_mod="moderator" in badges,
-            badges=badges,
-        )
-
+    def _on_message_received(self, msg: TwitchMessage) -> None:
         choice = self.config.message_to_choice(msg, self.config.choices)
-        if choice is not None and choice in self._valid_choices:
+        if choice and choice in self._valid_choices:
             with self._votes_lock:
-                self._votes.append((choice, time.time(), author))
+                self._votes.append((choice, time.time(), msg.author))
 
     @rpc
     def start(self) -> None:
+        self._stop_event.clear()
         self._valid_choices = frozenset(self.config.choices)
 
         # Auto-generate filter patterns from choices so the base filters correctly
@@ -202,6 +179,7 @@ class TwitchVotes(TwitchChat):
 
     @rpc
     def stop(self) -> None:
+        self._stop_event.set()
         if self._vote_thread is not None:
             self._vote_thread.join(timeout=2)
             self._vote_thread = None
@@ -216,9 +194,9 @@ class TwitchVotes(TwitchChat):
             self._votes.append((c, time.time(), voter))
 
     def _vote_loop(self) -> None:
-        while True:
+        while not self._stop_event.is_set():
             window_start = time.time()
-            time.sleep(self.config.vote_window_seconds)
+            self._stop_event.wait(timeout=self.config.vote_window_seconds)
             window_end = time.time()
 
             cutoff = window_end - self.config.vote_window_seconds

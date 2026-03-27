@@ -162,8 +162,8 @@ class TwitchChat(Module["TwitchChatConfig"]):
     def _handle_ready(self) -> None:
         logger.info("[TwitchChat] Ready")
 
-    def _handle_message(self, message: Any) -> None:
-        """Convert a twitchio Message into a TwitchMessage and publish."""
+    def _build_twitch_message(self, message: Any) -> TwitchMessage:
+        """Convert a raw twitchio Message into a TwitchMessage."""
         badges: dict[str, str] = {}
         if message.tags and "badges" in message.tags:
             raw = message.tags["badges"]
@@ -173,7 +173,7 @@ class TwitchChat(Module["TwitchChatConfig"]):
                     if len(parts) == 2:
                         badges[parts[0]] = parts[1]
 
-        msg = TwitchMessage(
+        return TwitchMessage(
             author=message.author.name if message.author else "",
             content=message.content or "",
             channel=message.channel.name if message.channel else "",
@@ -183,8 +183,14 @@ class TwitchChat(Module["TwitchChatConfig"]):
             badges=badges,
         )
 
+    def _handle_message(self, message: Any) -> None:
+        msg = self._build_twitch_message(message)
         self.raw_messages.publish(msg)
         self._publish_if_matched(msg)
+        self._on_message_received(msg)
+
+    def _on_message_received(self, msg: TwitchMessage) -> None:
+        """Hook for subclasses to process messages after publishing."""
 
     def _publish_if_matched(self, msg: TwitchMessage) -> None:
         """Publish to filtered_messages if msg passes all configured filters."""
