@@ -164,7 +164,9 @@ class DimSimBridge(NativeModule, Camera, Pointcloud):
             self.config.cwd = None
             return
 
-        dimsim_path = shutil.which("dimsim") or str(_dimsim_bin())
+        # Prefer compiled binary over PATH (PATH may have stale deno-installed version)
+        dimsim_bin = _dimsim_bin()
+        dimsim_path = str(dimsim_bin) if dimsim_bin.exists() else shutil.which("dimsim") or str(dimsim_bin)
         self.config.executable = dimsim_path
         self.config.extra_args = dev_args
         self.config.cwd = None
@@ -252,7 +254,6 @@ class DimSimBridge(NativeModule, Camera, Pointcloud):
                                 capture_output=True,
                             )
                         dimsim_path = str(dimsim)
-                        self.config.executable = dimsim_path
                         downloaded = True
                         logger.info("dimsim binary installed.")
                     except Exception as exc:
@@ -279,20 +280,23 @@ class DimSimBridge(NativeModule, Camera, Pointcloud):
                 "dimsim not found — install Deno and retry, or wait for next release with compiled binaries"
             )
 
+        # Always update executable to the resolved path (may differ from _resolve_paths)
+        self.config.executable = dimsim_path
+
         # Symlink to ~/.local/bin so `dimsim` is on PATH for eval authoring
+        # Must happen BEFORE setup so that `dimsim eval list` etc. use the new binary
         local_bin = Path.home() / ".local" / "bin"
         local_bin.mkdir(parents=True, exist_ok=True)
         symlink = local_bin / "dimsim"
-        if dimsim_path:
-            try:
-                target = Path(dimsim_path).resolve()
-                if symlink.is_symlink() and symlink.resolve() != target:
-                    symlink.unlink()
-                if not symlink.exists():
-                    symlink.symlink_to(target)
-                    logger.info(f"Symlinked dimsim → {symlink}")
-            except OSError:
-                pass  # no permission
+        try:
+            target = Path(dimsim_path).resolve()
+            if symlink.is_symlink() and symlink.resolve() != target:
+                symlink.unlink()
+            if not symlink.exists():
+                symlink.symlink_to(target)
+                logger.info(f"Symlinked dimsim → {symlink}")
+        except OSError:
+            pass  # no permission
 
         # setup/scene have version-aware caching (only downloads if version changed)
         logger.info("Checking core assets...")
