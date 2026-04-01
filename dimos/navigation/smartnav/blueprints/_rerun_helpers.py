@@ -116,8 +116,8 @@ def static_robot(rr: Any) -> list[Any]:
     """
     return [
         rr.Boxes3D(
-            half_sizes=[0.25, 0.20, 0.15],  # ~50x40x30 cm box (mecanum platform)
-            centers=[[0, 0, 0]],
+            half_sizes=[0.25, 0.20, 0.6],  # ~50x40x120 cm box (G1 humanoid)
+            centers=[[0, 0, -0.6]],
             colors=[(0, 255, 127)],
             fill_mode="MajorWireframe",
         ),
