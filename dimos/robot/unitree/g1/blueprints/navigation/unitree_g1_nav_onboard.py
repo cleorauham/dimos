@@ -140,17 +140,50 @@ unitree_g1_nav_onboard = (
         # SensorScanGeneration.blueprint(),
         TerrainAnalysis.blueprint(
             extra_args=[
-                "--obstacleHeightThre",
-                "0.2", # meters
-                "--maxRelZ",
-                "1.5",
-                "--vehicleHeight",
-                "1.2", # meters 
-                "--voxelPointUpdateThre",
-                "5",  # cull points if theres more than 5 points in a voxel (terrain_map is the largest consumer of the network, this helps shrink the point cloud)
+                # Input filtering
+                "--scanVoxelSize", "0.05",          # input point downsampling (m)
+                # Voxel grid
+                "--terrainVoxelSize", "1.0",         # grid cell size (m)
+                "--terrainVoxelHalfWidth", "10",     # grid radius in cells (→ 21×21)
+                # Obstacle/ground classification
+                "--obstacleHeightThre", "0.2",       # above this = hard obstacle (m)
+                "--groundHeightThre", "0.1",         # below this = ground for cost mode (m)
+                "--vehicleHeight", "1.2",            # ignore points above this (m)
+                "--minRelZ", "-1.5",                 # height filter min relative to robot (m)
+                "--maxRelZ", "1.5",                  # height filter max relative to robot (m)
+                "--useSorting", "true",              # quantile-based ground estimation
+                "--quantileZ", "0.25",               # ground height quantile
+                # Decay and clearing
+                "--decayTime", "2.0",                # point persistence (s)
+                "--noDecayDis", "4.0",               # no-decay radius around robot (m)
+                "--clearingDis", "8.0",              # dynamic clearing distance (m)
+                "--clearDyObs", "true",              # clear dynamic obstacles
+                "--noDataObstacle", "false",         # treat unseen voxels as obstacles
+                "--noDataBlockSkipNum", "0",         # skip N blocks with no data
+                "--minBlockPointNum", "10",          # min points per block for classification
+                # Voxel culling
+                "--voxelPointUpdateThre", "5",       # cull voxel after N points (default 100, reduced to limit terrain_map bandwidth)
+                "--voxelTimeUpdateThre", "2.0",      # cull voxel after N seconds
+                # Dynamic obstacle filtering
+                "--minDyObsDis", "0.14",             # min distance for dynamic obstacle detection (m)
+                "--absDyObsRelZThre", "0.2",         # z threshold for dynamic obstacles (m)
+                "--minDyObsVFOV", "-55.0",           # min vertical FOV for dynamic obs (deg)
+                "--maxDyObsVFOV", "10.0",            # max vertical FOV for dynamic obs (deg)
+                "--minDyObsPointNum", "1",           # min points for dynamic obstacle
+                "--minOutOfFovPointNum", "20",       # min out-of-FOV points
+                # Ground lift limits
+                "--considerDrop", "false",           # consider terrain drops
+                "--limitGroundLift", "false",        # limit ground plane lift
+                "--maxGroundLift", "0.15",           # max ground lift (m)
+                "--disRatioZ", "0.2",                # distance-to-z ratio for filtering
             ]
         ),
-        TerrainMapExt.blueprint(),
+        TerrainMapExt.blueprint(
+            voxel_size=0.4,      # meters per voxel (coarser than local terrain)
+            decay_time=8.0,      # seconds before points expire
+            publish_rate=2.0,    # Hz
+            max_range=40.0,      # max distance from robot to keep (m)
+        ),
         FarPlanner.blueprint(
             sensor_range=30.0,
             visibility_range=25.0,
