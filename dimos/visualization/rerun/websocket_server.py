@@ -31,6 +31,7 @@ Message format (newline-delimited JSON, ``"type"`` discriminant):
 
 import asyncio
 import json
+import logging
 import threading
 from typing import Any
 
@@ -150,6 +151,12 @@ class RerunWebSocketServer(Module[Config]):
 
         self._stop_event = asyncio.Event()
 
+        # Suppress noisy tracebacks from non-WebSocket connections (e.g. port
+        # scanners, health checks, or accidental gRPC probes).  The library
+        # logs failed handshakes at ERROR level, so we need CRITICAL to hide them.
+        ws_logger = logging.getLogger("websockets.server")
+        ws_logger.setLevel(logging.CRITICAL)
+
         async with ws_server.serve(
             self._handle_client,
             host=self.config.host,
@@ -158,6 +165,7 @@ class RerunWebSocketServer(Module[Config]):
             # survive brief network hiccups while still detecting dead clients.
             ping_interval=30,
             ping_timeout=30,
+            logger=ws_logger,
         ):
             self._server_ready.set()
             await self._stop_event.wait()
