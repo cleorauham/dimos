@@ -62,6 +62,8 @@ class LocalPlannerConfig(NativeModuleConfig):
         "goal_clearance": "goalClearance",
         "goal_reached_threshold": "goalReachedThreshold",
         "goal_behind_range": "goalBehindRange",
+        "freeze_ang": "freezeAng",
+        "two_way_drive": "twoWayDrive",
         "goal_x": "goalX",
         "goal_y": "goalY",
     }
@@ -108,6 +110,11 @@ class LocalPlannerConfig(NativeModuleConfig):
     goal_reached_threshold: float | None = None
     # When goal is behind the robot and within this range, robot stops (m).
     goal_behind_range: float | None = None
+    # Freeze angle (deg): if goal direction exceeds this, robot freezes for
+    # freezeTime.  Set to 180 for omni-dir robots to disable freeze.
+    freeze_ang: float | None = None
+    # Allow driving in reverse.  False = robot must turn to face goal first.
+    two_way_drive: bool | None = None
     # Goal x-coordinate in local frame (m). None = omit from CLI (binary default).
     goal_x: float | None = None
     # Goal y-coordinate in local frame (m). None = omit from CLI (binary default).

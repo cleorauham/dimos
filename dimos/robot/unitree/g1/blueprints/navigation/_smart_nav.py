@@ -185,6 +185,9 @@ _smart_nav_sim = autoconnect(
         # sees walls from floor to ceiling and treats doorways as impassable.
         max_relative_z=0.3,
         min_relative_z=-0.4,
+        # Disable freeze logic for omni-dir robot — G1 can drive in any direction
+        freeze_ang=180.0,
+
     ),
     PathFollower.blueprint(
         autonomy_mode=True,
