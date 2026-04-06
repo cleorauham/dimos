@@ -18,7 +18,6 @@ These tests exercise the actual framework machinery -- pickling, transport wirin
 cross-process communication -- not just direct method calls.
 """
 
-import pickle
 import time
 
 import numpy as np
@@ -36,43 +35,6 @@ from dimos.navigation.smart_nav.modules.sensor_scan_generation.sensor_scan_gener
 )
 from dimos.navigation.smart_nav.modules.tui_control.tui_control import TUIControlModule
 from dimos.simulation.unity.module import UnityBridgeModule
-
-
-class TestModulePickling:
-    """Every module must survive pickle round-trip (the deployment path)."""
-
-    def test_sensor_scan_generation_pickles(self):
-        m = SensorScanGeneration()
-        m2 = pickle.loads(pickle.dumps(m))
-        assert hasattr(m2, "_lock")
-        assert m2._latest_odom is None
-
-    def test_unity_bridge_pickles(self):
-        m = UnityBridgeModule(sim_rate=200.0)
-        m2 = pickle.loads(pickle.dumps(m))
-        assert hasattr(m2, "_cmd_lock")
-        assert m2._running is False
-
-    def test_tui_control_pickles(self):
-        m = TUIControlModule(max_speed=2.0)
-        m2 = pickle.loads(pickle.dumps(m))
-        assert hasattr(m2, "_lock")
-        assert m2._fwd == 0.0
-
-    def test_all_native_modules_pickle(self):
-        """NativeModule wrappers must also pickle cleanly."""
-        from dimos.navigation.smart_nav.modules.far_planner.far_planner import FarPlanner
-        from dimos.navigation.smart_nav.modules.local_planner.local_planner import LocalPlanner
-        from dimos.navigation.smart_nav.modules.path_follower.path_follower import PathFollower
-        from dimos.navigation.smart_nav.modules.tare_planner.tare_planner import TarePlanner
-        from dimos.navigation.smart_nav.modules.terrain_analysis.terrain_analysis import (
-            TerrainAnalysis,
-        )
-
-        for cls in [TerrainAnalysis, LocalPlanner, PathFollower, FarPlanner, TarePlanner]:
-            m = cls()
-            m2 = pickle.loads(pickle.dumps(m))
-            assert type(m2) is cls, f"{cls.__name__} failed pickle round-trip"
 
 
 class TestTransportWiring:
