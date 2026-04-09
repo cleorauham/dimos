@@ -12,25 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from reactivex.disposable import Disposable
+from typing import Any
 
-from dimos.core.core import rpc
-from dimos.core.module import Module
-from dimos.core.stream import In, Out
+from dimos.memory2.store.memory import MemoryStore
 
 
-class AliceModule(Module):
-    greetings: In[str]
-    response: Out[str]
+class NullStore(MemoryStore):
+    """Live-only store — O(1) memory, no history/replay.
 
-    @rpc
-    def start(self) -> None:
-        super().start()
-        self.register_disposable(Disposable(self.greetings.subscribe(self._on_greetings)))
+    Shorthand for ``MemoryStore(max_size=0)``.
+    Observations get IDs (for live dedup) but are immediately discarded.
+    """
 
-    @rpc
-    def stop(self) -> None:
-        super().stop()
-
-    def _on_greetings(self, greeting: str) -> None:
-        self.response.publish(f"Hello {greeting} from Alice")
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("max_size", 0)
+        super().__init__(**kwargs)
