@@ -41,7 +41,6 @@ from dimos.core.resource import CompositeResource
 from dimos.core.rpc_client import RpcCall
 from dimos.core.stream import In, Out, RemoteOut, Transport
 from dimos.memory2.store.sqlite import SqliteStore
-from dimos.memory2.stream import Stream
 from dimos.protocol.rpc.pubsubrpc import LCMRPC
 from dimos.protocol.rpc.spec import DEFAULT_RPC_TIMEOUT, DEFAULT_RPC_TIMEOUTS, RPCSpec
 from dimos.protocol.service.spec import BaseConfig, Configurable
@@ -54,6 +53,7 @@ if TYPE_CHECKING:
     from dimos.core.coordination.blueprints import Blueprint
     from dimos.core.introspection.module.info import ModuleInfo
     from dimos.core.rpc_client import RPCClient
+    from dimos.memory2.stream import Stream
 
 if sys.version_info >= (3, 13):
     from typing import TypeVar
@@ -385,6 +385,8 @@ class ModuleBase(Configurable, CompositeResource):
 
     @rpc
     def start_recording(self, db_path: str) -> None:
+        from dimos.memory2.store.sqlite import SqliteStore
+
         self._rec_store = SqliteStore(path=db_path)
         for name, out in self.outputs.items():
             stream = self._rec_store.stream(name, out.type)
@@ -393,7 +395,7 @@ class ModuleBase(Configurable, CompositeResource):
                 reg["channel"] = f"/{name}#{out.type.msg_name}"
                 self._rec_store._registry.put(name, reg)
 
-            def cb(msg: Any, _stream: Stream[object] = stream) -> None:
+            def cb(msg: Any, _stream: "Stream[object]" = stream) -> None:
                 ts = msg.ts if isinstance(msg, Timestamped) else time.time()
                 _stream.append(msg, ts=ts)
 
