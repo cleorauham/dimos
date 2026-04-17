@@ -16,9 +16,7 @@
 
 from __future__ import annotations
 
-from dimos_lcm.geometry_msgs import Polygon as LCMPolygon
-
-from dimos.msgs.geometry_msgs.Point32 import Point32
+from dimos_lcm.geometry_msgs import Point32, Polygon as LCMPolygon
 
 
 class Polygon(LCMPolygon):  # type: ignore[misc]

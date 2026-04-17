@@ -19,9 +19,8 @@ from __future__ import annotations
 import time
 from typing import BinaryIO
 
-from dimos_lcm.geometry_msgs import PolygonStamped as LCMPolygonStamped
+from dimos_lcm.geometry_msgs import Point32, PolygonStamped as LCMPolygonStamped
 
-from dimos.msgs.geometry_msgs.Point32 import Point32
 from dimos.msgs.geometry_msgs.Polygon import Polygon
 from dimos.types.timestamped import Timestamped
 

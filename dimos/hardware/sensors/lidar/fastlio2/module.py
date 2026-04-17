@@ -138,9 +138,6 @@ class FastLio2Config(NativeModuleConfig):
     voxel_size: float = 0.1
     sor_mean_k: int = 50
     sor_stddev: float = 1.0
-    # Drop points within this radius of the sensor in world frame.
-    # Catches robot body self-hits that the body-frame blind filter misses.
-    blind_radius: float = 0.5
 
     # Global voxel map (disabled when map_freq <= 0)
     map_freq: float = 0.0

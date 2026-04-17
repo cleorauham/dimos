@@ -434,13 +434,22 @@ class SimplePlanner(Module):
         cell_size = cm.cell_size
         ixs = np.floor(xs / cell_size).astype(np.int64)
         iys = np.floor(ys / cell_size).astype(np.int64)
-        for i in range(len(ixs)):
-            key = (int(ixs[i]), int(iys[i]))
-            h = float(hs[i])
+        # Group by cell and take max height per cell (vectorized).
+        keys = np.column_stack((ixs, iys))
+        _, inverse, counts = np.unique(keys, axis=0, return_inverse=True, return_counts=True)
+        max_h = np.full(len(counts), float("-inf"))
+        np.maximum.at(max_h, inverse, hs)
+        unique_keys = keys[np.unique(inverse, return_index=True)[1]]
+        dirty = False
+        for i in range(len(unique_keys)):
+            key = (int(unique_keys[i, 0]), int(unique_keys[i, 1]))
+            h = float(max_h[i])
             prev = cm._heights.get(key, float("-inf"))
             if h > prev:
                 cm._heights[key] = h
-                cm._blocked_dirty = True
+                dirty = True
+        if dirty:
+            cm._blocked_dirty = True
 
     def _fresh_costmap(self) -> Costmap:
         return Costmap(
@@ -464,6 +473,9 @@ class SimplePlanner(Module):
         self._classify_points(points, new_cm)
         # Hot-swap in one assignment so the planning loop sees either
         # the old or the new map but never a partial one.
+        # Note: a concurrent _on_terrain_map may still be writing into the
+        # old costmap when we swap; those writes are silently lost. This is
+        # acceptable — the next terrain_map_ext rebuild will pick them up.
         self._costmap = new_cm
 
     def _on_terrain_map(self, msg: PointCloud2) -> None:
