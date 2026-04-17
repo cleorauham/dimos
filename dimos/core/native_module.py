@@ -402,12 +402,9 @@ class NativeModule(Module):
                 logger.warning(line, module=self._mod_label)
 
         if proc.returncode != 0:
-            tail = [l for l in stderr_lines if l.strip()][-20:]
-            tail_str = "\n".join(tail) if tail else "(no stderr output)"
             raise RuntimeError(
                 f"[{self._mod_label}] Build command failed after {build_elapsed:.2f}s "
-                f"(exit {proc.returncode}): {self.config.build_command}\n"
-                f"--- last stderr ---\n{tail_str}"
+                f"(exit {proc.returncode}): {self.config.build_command}"
             )
         if not exe.exists():
             raise FileNotFoundError(
