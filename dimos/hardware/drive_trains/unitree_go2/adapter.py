@@ -700,6 +700,42 @@ class UnitreeGo2TwistAdapter:
             f"known_modes={list(s['known_modes'])}"
         )
 
+    def reinit_in_mode(self, name: str) -> bool:
+        """Safely transition to `name` mode from any running state.
+
+        Does the full dance in one call:
+          1. StopMove + StandDown + poll until damped + ReleaseMode
+             (stand_down_and_release)
+          2. SelectMode(name) with i_have_sat_the_robot=True
+             (switch_mode)
+          3. StandUp + FreeWalk + SpeedLevel (_initialize_locomotion)
+
+        After this returns True, the adapter is enabled-ready in the
+        new mode — call write_enable(True) if you want to re-accept
+        write_velocities commands.
+
+        Returns False if any step fails. The robot will end up in a safe
+        sit/damped state in that case — check logs for the stage that
+        failed. The caller's session.enabled is cleared; call
+        write_enable(True) again if you want to resume commanding.
+        """
+        logger.info(f"[Go2] reinit_in_mode('{name}'): full stand-down → switch → relocomote")
+
+        if not self.stand_down_and_release():
+            logger.error(f"[Go2] reinit_in_mode('{name}'): stand_down_and_release failed")
+            return False
+
+        if not self.switch_mode(name, i_have_sat_the_robot=True):
+            logger.error(f"[Go2] reinit_in_mode('{name}'): switch_mode failed")
+            return False
+
+        if not self._initialize_locomotion():
+            logger.error(f"[Go2] reinit_in_mode('{name}'): _initialize_locomotion failed")
+            return False
+
+        logger.info(f"[Go2] ✓ reinit_in_mode('{name}') complete")
+        return True
+
     def set_speed_level(self, level: int) -> bool:
         """Set the SportClient speed envelope at runtime.
 

@@ -18,11 +18,20 @@ Standalone class — instantiated manually, NOT registered through the
 TwistBaseAdapterRegistry. The registry only auto-discovers modules named
 adapter.py, so this file is safely invisible to discovery.
 
+Firmware note:
+  Go2 low-level control works whenever NO sport controller is active
+  (MotionSwitcher CheckMode returns empty name). There is no required
+  "advanced" mode on Go2 — rt/lowcmd is listened to at the motor-
+  controller firmware layer, not gated by MotionSwitcher. An earlier
+  version of this file said SelectMode('advanced') was required; that
+  was incorrect and carried over from G1/H1 documentation. Empty mode
+  is sufficient.
+
 Prerequisites (the caller is responsible for these):
   1. Robot is sat down or damped before connect() is called.
-  2. MotionSwitcher is in 'advanced' mode (or empty). Use
-     UnitreeGo2TwistAdapter.stand_down_and_release() followed by
-     switch_mode('advanced', i_have_sat_the_robot=True) to get there.
+  2. MotionSwitcher is empty (no controller running). Use
+     UnitreeGo2TwistAdapter.stand_down_and_release() to get there
+     from any active mode ('normal', 'mcf', 'ai', etc.).
 
 What this adapter does:
   - Publishes LowCmd_ on rt/lowcmd at up to 500 Hz, per-joint {q, dq, tau,
@@ -201,7 +210,7 @@ class UnitreeGo2LowLevelAdapter:
             self._motion_switcher.Init()
             time.sleep(1.0)
 
-            if not self._verify_mode_advanced():
+            if not self._verify_no_sport_controller():
                 self._teardown()
                 return False
 
@@ -486,11 +495,13 @@ class UnitreeGo2LowLevelAdapter:
         self._motion_switcher = None
         self._cmd = None
 
-    def _verify_mode_advanced(self) -> bool:
-        """Check MotionSwitcher reports 'advanced' or empty.
+    def _verify_no_sport_controller(self) -> bool:
+        """Check MotionSwitcher reports empty (no sport controller).
 
-        Returns False (with actionable log) if a locomotion controller
-        name like 'normal', 'ai', or 'mcf' is active.
+        Go2 low-level (rt/lowcmd) works whenever no sport controller is
+        running — nothing fights our motor commands at the motor-controller
+        firmware layer. Returns False if 'normal' / 'mcf' / 'ai' / any
+        other name is still active; caller should release first.
         """
         if self._motion_switcher is None:
             return False
@@ -508,15 +519,15 @@ class UnitreeGo2LowLevelAdapter:
             return False
 
         current = (data.get("name") or "").strip()
-        if current in ("", "advanced"):
-            logger.info(f"[Go2 LowLevel] Mode '{current}' OK for low-level")
+        if current == "":
+            logger.info("[Go2 LowLevel] No sport controller active — OK for low-level")
             return True
 
         logger.error(
-            f"[Go2 LowLevel] Controller '{current}' is running — low-level "
-            "is unsafe. Use UnitreeGo2TwistAdapter.stand_down_and_release() "
-            "then switch_mode('advanced', i_have_sat_the_robot=True) before "
-            "instantiating this adapter."
+            f"[Go2 LowLevel] Sport controller '{current}' is running — "
+            "low-level is unsafe. Call "
+            "UnitreeGo2TwistAdapter.stand_down_and_release() first so "
+            "CheckMode goes empty, then instantiate this adapter."
         )
         return False
 
