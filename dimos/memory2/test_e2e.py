@@ -89,23 +89,33 @@ def lidar_replay() -> LegacyPickleStore[PointCloud2]:
 
 @pytest.mark.tool
 class TestImportReplay:
-    """Import legacy pickle replay data into a memory2 SqliteStore."""
+    """Import legacy pickle replay data into a memory2 SqliteStore.
+
+    Lidar/odom are trimmed to start at video's first ts. The Memory2ReplayAdapter
+    scheduler anchors each stream to its own first_ts on subscribe, so aligning
+    first_ts across streams keeps replay synchronized.
+    """
 
     def test_import_odom(
         self,
         session: SqliteStore,
         odom_index: PoseIndex,
+        video_replay: LegacyPickleStore,  # type: ignore[type-arg]
     ) -> None:
+        threshold = video_replay.first_timestamp()
         with session.stream("odom", Odometry) as odom:
             count = 0
+            skipped = 0
             for ts, data in odom_index:
-                print(data)
+                if ts < threshold:
+                    skipped += 1
+                    continue
                 odom.append(data, ts=ts, pose=data)
                 count += 1
 
             assert count > 0
             assert odom.count() == count
-            print(f"Imported {count} odom frames")
+            print(f"Imported {count} odom frames (skipped {skipped} before {threshold:.2f})")
 
     def test_import_video(
         self,
@@ -117,7 +127,7 @@ class TestImportReplay:
             count = 0
             for ts, frame in video_replay.iterate_ts():
                 pose = odom_index.find_closest(ts)
-                video.append(frame, ts=ts - 1.0, pose=pose)
+                video.append(frame, ts=ts, pose=pose)
                 count += 1
                 print(f"import [{count}] ts={ts:.2f} {frame}")
 
@@ -130,22 +140,29 @@ class TestImportReplay:
         session: SqliteStore,
         lidar_replay: LegacyPickleStore,  # type: ignore[type-arg]
         odom_index: PoseIndex,
+        video_replay: LegacyPickleStore,  # type: ignore[type-arg]
     ) -> None:
-        # can also be explicit here
-        # lidar = session.stream("lidar", PointCloud2, codec=Lz4Codec(LcmCodec(PointCloud2)))
+        threshold = video_replay.first_timestamp()
         lidar = session.stream("lidar", PointCloud2, codec="lz4+lcm")
 
         count = 0
+        skipped = 0
         for ts, frame in lidar_replay.iterate_ts():
+            if ts < threshold:
+                skipped += 1
+                continue
             pose = odom_index.find_closest(ts)
-            print("import", frame)
             lidar.append(frame, ts=ts, pose=pose)
             count += 1
+            print(f"import [{count}] ts={ts:.2f} {frame}")
 
         assert count > 0
         assert lidar.count() == count
-        print(f"Imported {count} lidar frames")
+        print(f"Imported {count} lidar frames (skipped {skipped} before {threshold:.2f})")
 
+
+@pytest.mark.tool
+class TestEmbed:
     def test_embed_and_save(self, session: SqliteStore, clip: CLIPModel) -> None:
         """Embed video frames at 1Hz and persist to an embedded stream."""
         video = session.stream("color_image", Image)
@@ -317,6 +334,10 @@ class TestEmbedImages:
         results = embedded.search(query, k=5).fetch()
         assert len(results) > 0
         for obs in results:
+            assert obs.similarity is not None
+            assert obs.pose is not None
+            print(f"sim={obs.similarity:.3f} ts={obs.ts} pose={obs.pose}")
+            print(f"sim={obs.similarity:.3f} ts={obs.ts} pose={obs.pose}")
             assert obs.similarity is not None
             assert obs.pose is not None
             print(f"sim={obs.similarity:.3f} ts={obs.ts} pose={obs.pose}")
