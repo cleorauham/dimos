@@ -148,6 +148,7 @@ class UnitreeGo2TwistAdapter:
         self._session_lock = threading.Lock()
         self._speed_level = speed_level
         self._rage_mode_default = rage_mode
+        self._last_move_log_ts: float = 0.0
 
     # =========================================================================
     # TwistBaseAdapter protocol
@@ -818,17 +819,8 @@ class UnitreeGo2TwistAdapter:
         if not self._call_sport_api(self._SPORT_API_ID_RAGEMODE, {"data": enable}):
             return False
 
-        # FsmRageMode defaults joystick off (policy self-drives). Flip it
-        # on so SportClient.Move() commands from SDK callers are accepted.
-        # Best-effort — log non-zero codes but don't fail the whole toggle.
         if enable:
-            try:
-                with session.lock:
-                    ret = session.client.SwitchJoystick(True)
-                if ret != 0:
-                    logger.warning(f"[Go2] SwitchJoystick(True) after rage returned {ret}")
-            except Exception as e:
-                logger.warning(f"[Go2] SwitchJoystick raised after rage enable: {e}")
+            time.sleep(2.0)  # let FsmRageMode transition settle
 
         logger.info(f"[Go2] ✓ Rage Mode {'enabled' if enable else 'disabled'}")
         return True
@@ -1093,6 +1085,20 @@ class UnitreeGo2TwistAdapter:
         Returns False on SDK exception or non-zero return code.
         """
         session = self._get_session()
+        now = time.monotonic()
+        nonzero = abs(vx) + abs(vy) + abs(wz) > 1e-3
+        if nonzero and now - self._last_move_log_ts > 0.5:
+            mode_num = None
+            if session.latest_state is not None:
+                try:
+                    mode_num = int(session.latest_state.mode)
+                except Exception:
+                    pass
+            logger.info(
+                f"[Go2] Move(vx={vx:+.2f}, vy={vy:+.2f}, wz={wz:+.2f})  "
+                f"sport_mode_num={mode_num}"
+            )
+            self._last_move_log_ts = now
         try:
             with session.lock:
                 ret = session.client.Move(vx, vy, wz)
