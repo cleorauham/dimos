@@ -41,7 +41,6 @@ from dimos.core.module import Module, ModuleConfig
 from dimos.core.stream import In, Out
 from dimos.msgs.geometry_msgs.PointStamped import PointStamped
 from dimos.msgs.geometry_msgs.Twist import Twist
-from dimos.navigation.smart_nav.frames import FRAME_BODY, FRAME_MAP, FRAME_ODOM
 from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger()
@@ -54,7 +53,7 @@ class MovementManagerConfig(ModuleConfig):
     tele_cooldown_sec: float = 1.0
     # TF child frame for the robot body.  Override to ``"sensor"`` for
     # the Unity sim bridge.
-    body_frame: str = FRAME_BODY
+    body_frame: str = "body"
 
 
 class MovementManager(Module):
@@ -139,20 +138,10 @@ class MovementManager(Module):
         successful parent frame to avoid repeated BFS misses.
         """
         child = self.config.body_frame
-        cached_parent = getattr(self, "_tf_cached_parent", None)
-        if cached_parent is not None:
-            tf = self.tf.get(cached_parent, child)
-            if tf is not None:
-                with self._lock:
-                    self._robot_x = float(tf.translation.x)
-                    self._robot_y = float(tf.translation.y)
-                    self._robot_z = float(tf.translation.z)
-                with self._lock:
-                    return self._robot_x, self._robot_y, self._robot_z
-        for parent in (FRAME_MAP, FRAME_ODOM):
+        # Always try map first (corrected pose), fall back to odom (startup).
+        for parent in ("map", "odom"):
             tf = self.tf.get(parent, child)
             if tf is not None:
-                self._tf_cached_parent = parent
                 with self._lock:
                     self._robot_x = float(tf.translation.x)
                     self._robot_y = float(tf.translation.y)
@@ -178,11 +167,11 @@ class MovementManager(Module):
     def _cancel_goal(self) -> None:
         """Publish NaN goal so planners clear their active goal."""
         self.stop_movement.publish(Bool(data=True))
-        # NOTE: this NaN goal is more of a saftey fallback.
+        # NOTE: this NaN goal is more of a safety fallback.
         # It can be REALLY bad if a robot is supposed to stop moving but wont
         # we should probably think a more robust/strict requirement on planners
         cancel = PointStamped(
-            ts=time.time(), frame_id=FRAME_MAP, x=float("nan"), y=float("nan"), z=float("nan")
+            ts=time.time(), frame_id="map", x=float("nan"), y=float("nan"), z=float("nan")
         )
         self.way_point.publish(cancel)
         self.goal.publish(cancel)
