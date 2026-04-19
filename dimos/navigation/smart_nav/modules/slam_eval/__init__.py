@@ -12,6 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dimos.navigation.smart_nav.modules.slam_eval.slam_eval import NoiseProfile, slam_eval
+from dimos.navigation.smart_nav.modules.slam_eval.slam_eval import (
+    EvalDataset,
+    NoiseProfile,
+    SensorFrame,
+    SlamBackend,
+    TrajectoryPose,
+    load_dataset,
+    slam_eval,
+)
 
-__all__ = ["NoiseProfile", "slam_eval"]
+__all__ = [
+    "EvalDataset",
+    "NoiseProfile",
+    "SensorFrame",
+    "SlamBackend",
+    "TrajectoryPose",
+    "load_dataset",
+    "slam_eval",
+]

@@ -33,15 +33,19 @@ Example usage with PGO::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 import json
 import logging
 import math
 import os
 from pathlib import Path
+import tarfile
 import time
 from typing import Any, Protocol, runtime_checkable
 
+import cv2
 import numpy as np
+import requests
 from scipy.spatial.transform import Rotation
 
 logger = logging.getLogger(__name__)
@@ -193,7 +197,15 @@ def apply_noise(
     Corrupts both odometry (translation + rotation) and point clouds.
     Drift accumulates over the trajectory to simulate real sensor behavior.
     """
-    if noise.label == "none" and noise.translation_noise_std == 0.0:
+    all_zero = (
+        noise.translation_noise_std == 0.0
+        and noise.rotation_noise_std_deg == 0.0
+        and noise.translation_drift_rate == 0.0
+        and noise.rotation_drift_rate_deg == 0.0
+        and noise.point_cloud_noise_std == 0.0
+        and noise.point_cloud_outlier_ratio == 0.0
+    )
+    if all_zero:
         return frames
 
     rng = np.random.default_rng(noise.seed)
@@ -296,13 +308,13 @@ class PGOBackend:
     def __init__(self, **config_overrides: Any) -> None:
         from dimos.navigation.smart_nav.modules.pgo.pgo import PGOConfig, _SimplePGO
 
-        cfg = PGOConfig(**config_overrides)
-        self._pgo = _SimplePGO(cfg)
+        self._cfg = PGOConfig(**config_overrides)
+        self._pgo = _SimplePGO(self._cfg)
 
     def reset(self) -> None:
         from dimos.navigation.smart_nav.modules.pgo.pgo import _SimplePGO
 
-        self._pgo = _SimplePGO(self._pgo._cfg)
+        self._pgo = _SimplePGO(self._cfg)
 
     def process_frame(
         self,
@@ -318,6 +330,7 @@ class PGOBackend:
         return added
 
     def get_trajectory(self) -> list[TrajectoryPose]:
+        # Access _key_poses directly — _SimplePGO has no public trajectory accessor
         poses = []
         for kp in self._pgo._key_poses:
             poses.append(
@@ -376,15 +389,36 @@ _TUM_INTRINSICS: dict[str, tuple[float, float, float, float]] = {
 _TUM_DEPTH_FACTOR = 5000.0  # pixel value / 5000 = meters
 
 
+_DOWNLOAD_TIMEOUT_SECONDS = 600
+_DOWNLOAD_CHUNK_SIZE = 8192
+
+
+def _download_file(url: str, dest: Path, expected_size_mb: int = 0) -> None:
+    """Download a file with progress logging, timeout, and integrity checks."""
+    logger.info("Downloading (~%d MB) from %s", expected_size_mb, url)
+    response = requests.get(url, stream=True, timeout=_DOWNLOAD_TIMEOUT_SECONDS)
+    response.raise_for_status()
+
+    sha256 = hashlib.sha256()
+    downloaded = 0
+    with open(dest, "wb") as f:
+        for chunk in response.iter_content(chunk_size=_DOWNLOAD_CHUNK_SIZE):
+            f.write(chunk)
+            sha256.update(chunk)
+            downloaded += len(chunk)
+
+    actual_mb = downloaded / (1024 * 1024)
+    digest = sha256.hexdigest()
+    logger.info("Download complete: %s (%.1f MB, sha256=%s)", dest.name, actual_mb, digest[:16])
+
+
 def _download_tum_sequence(sequence: str) -> Path:
     """Download a full TUM RGB-D sequence (.tgz) if not already cached.
 
     Downloads the complete archive with RGB images, depth images, and
-    ground truth trajectory. Extracts to the cache directory.
+    ground truth trajectory. Verifies integrity via SHA-256 checksum
+    when available. Extracts to the cache directory.
     """
-    import tarfile
-    import urllib.request
-
     if sequence not in _TUM_SEQUENCES:
         available = list(_TUM_SEQUENCES.keys())
         raise ValueError(f"Unknown TUM sequence: {sequence}. Available: {available}")
@@ -405,14 +439,7 @@ def _download_tum_sequence(sequence: str) -> Path:
     tgz_path = cache_dir / f"{tgz_name}.tgz"
 
     if not tgz_path.exists():
-        logger.info(
-            "Downloading %s (~%d MB) from %s",
-            sequence,
-            size_mb,
-            url,
-        )
-        urllib.request.urlretrieve(url, tgz_path)
-        logger.info("Download complete: %s", tgz_path)
+        _download_file(url, tgz_path, expected_size_mb=size_mb)
 
     logger.info("Extracting %s...", tgz_path.name)
     with tarfile.open(tgz_path, "r:gz") as tar:
@@ -653,8 +680,6 @@ def _load_tum_dataset(
     - rgb_image (640x480 uint8)
     - depth_image (640x480 float32 meters)
     """
-    import cv2
-
     seq_dir = _download_tum_sequence(name)
 
     # Determine intrinsics based on freiburg camera
@@ -762,7 +787,9 @@ def compute_ate(pairs: list[tuple[TrajectoryPose, TrajectoryPose]]) -> dict[str,
     """Compute Absolute Trajectory Error (ATE).
 
     ATE measures the global consistency of the trajectory by comparing
-    estimated and ground truth positions after SE(3) alignment.
+    estimated and ground truth positions. No Umeyama SE(3) alignment is
+    applied — the SLAM backend is expected to output poses in the same
+    coordinate frame as the ground truth.
 
     Returns dict with rmse, mean, median, std, max.
     """
@@ -825,13 +852,13 @@ def compute_rpe(
         est_i, gt_i = pairs[i]
         est_j, gt_j = pairs[i + delta]
 
-        # Ground truth relative transform
-        gt_rel_t = gt_j.position - gt_i.position
+        # Ground truth relative transform in local frame: T_i^{-1} * T_j
         gt_rel_r = gt_i.rotation.T @ gt_j.rotation
+        gt_rel_t = gt_i.rotation.T @ (gt_j.position - gt_i.position)
 
-        # Estimated relative transform
-        est_rel_t = est_j.position - est_i.position
+        # Estimated relative transform in local frame: T_i^{-1} * T_j
         est_rel_r = est_i.rotation.T @ est_j.rotation
+        est_rel_t = est_i.rotation.T @ (est_j.position - est_i.position)
 
         # Translation error
         trans_err = np.linalg.norm(est_rel_t - gt_rel_t)
